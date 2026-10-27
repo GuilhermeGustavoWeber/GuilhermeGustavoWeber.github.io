@@ -231,7 +231,7 @@ function initInteractiveTerminal() {
 }
 
 /* ==========================================================================
-   4. SIMULADOR DO THARIUM HOUSE: IA ESPACIAL, FOV 120º & PERSEGUIÇÃO AO ÚLTIMO PONTO VISTO
+   4. SIMULADOR DO THARIUM HOUSE: IA ESPACIAL, FOV 120º COM OCLUSÃO & NAVMESH
    ========================================================================== */
 
 function initThariumHeatmapSimulation() {
@@ -276,9 +276,10 @@ function initThariumHeatmapSimulation() {
   let searchBaseAngle = 0;
   let alertPulse = 0;
 
-  // Geometria do Labirinto (Pilares e Corredores de Oclusão)
+  // Geometria do Labirinto & NavMesh
   let obstacles = [];
-  let waypoints = [];
+  let navNodes = [];
+  let navAdj = {};
 
   function updateMapGeometry() {
     const w = canvas.width;
@@ -289,57 +290,68 @@ function initThariumHeatmapSimulation() {
       heatmap = new Array(cols * rows).fill(0);
     }
 
-    // Pilares verticais criando corredores e quebras de linha de visão
+    // Paredes do labirinto com passagens largas e sem quinas bloqueantes
+    const wallW = 14;
     obstacles = [
-      { x: w * 0.28, y: 0, w: 12, h: h * 0.40 },
-      { x: w * 0.28, y: h * 0.60, w: 12, h: h * 0.40 },
-      { x: w * 0.50, y: h * 0.22, w: 14, h: h * 0.56 },
-      { x: w * 0.74, y: 0, w: 12, h: h * 0.42 },
-      { x: w * 0.74, y: h * 0.58, w: 12, h: h * 0.42 },
+      // Parede 1 (Esquerda) com porta central de 56px
+      { x: w * 0.33, y: 0, w: wallW, h: 66 },
+      { x: w * 0.33, y: 124, w: wallW, h: h - 124 },
+      // Parede 2 (Direita) com portas no topo (48px) e na base (48px)
+      { x: w * 0.66, y: 48, w: wallW, h: 94 },
     ];
 
-    waypoints = [
-      { x: w * 0.12, y: h * 0.25 },
-      { x: w * 0.12, y: h * 0.75 },
-      { x: w * 0.38, y: h * 0.18 },
-      { x: w * 0.38, y: h * 0.82 },
-      { x: w * 0.62, y: h * 0.18 },
-      { x: w * 0.62, y: h * 0.82 },
-      { x: w * 0.88, y: h * 0.30 },
-      { x: w * 0.88, y: h * 0.70 },
-      { x: w * 0.50, y: h * 0.10 },
-      { x: w * 0.50, y: h * 0.90 },
+    // Grafo de Navegação (NavMesh com rotas 100% desobstruídas)
+    navNodes = [
+      { x: w * 0.15, y: 42 },   // 0: Sala Esquerda Topo
+      { x: w * 0.15, y: 148 },  // 1: Sala Esquerda Base
+      { x: w * 0.33 + 7, y: 95 }, // 2: Porta A (Centro)
+      { x: w * 0.50, y: 95 },   // 3: Sala Central
+      { x: w * 0.66 + 7, y: 24 }, // 4: Porta B Topo
+      { x: w * 0.66 + 7, y: 166 },// 5: Porta B Base
+      { x: w * 0.85, y: 42 },   // 6: Sala Direita Topo
+      { x: w * 0.85, y: 148 },  // 7: Sala Direita Base
     ];
+
+    navAdj = {
+      0: [1, 2],
+      1: [0, 2],
+      2: [0, 1, 3],
+      3: [2, 4, 5],
+      4: [3, 6],
+      5: [3, 7],
+      6: [4, 7],
+      7: [5, 6],
+    };
   }
   updateMapGeometry();
 
-  // Entidade Jogador (Autônomo navegando o labirinto)
+  // Entidades
   let player = {
-    x: canvas.width * 0.12,
-    y: canvas.height * 0.5,
+    x: canvas.width * 0.15,
+    y: 95,
     speed: 1.4,
-    currentWaypointIdx: 0,
+    targetNodeIdx: 0,
     radius: 6,
   };
 
-  // Entidade IA Fantasma (NavMesh & Visão 120º)
   let ghost = {
-    x: canvas.width * 0.88,
-    y: canvas.height * 0.5,
+    x: canvas.width * 0.85,
+    y: 95,
     speed: 1.5,
     targetX: canvas.width * 0.5,
-    targetY: canvas.height * 0.5,
+    targetY: 95,
     angle: Math.PI,
     patrolCooldown: 0,
     radius: 7,
   };
 
   function resetPositions() {
-    player.x = canvas.width * 0.12;
-    player.y = canvas.height * 0.5;
-    player.currentWaypointIdx = 0;
-    ghost.x = canvas.width * 0.88;
-    ghost.y = canvas.height * 0.5;
+    const w = canvas.width;
+    player.x = w * 0.15;
+    player.y = 95;
+    player.targetNodeIdx = 0;
+    ghost.x = w * 0.85;
+    ghost.y = 95;
     ghost.angle = Math.PI;
     ghost.speed = 1.5;
     currentAiState = AI_STATE.PATROL;
@@ -347,61 +359,223 @@ function initThariumHeatmapSimulation() {
     searchTimer = 0;
   }
 
-  // Interseção de Segmento e Retângulo para Oclusão de Visão (Raycast)
-  function lineIntersectsLine(p1x, p1y, p2x, p2y, p3x, p3y, p4x, p4y) {
-    const denom = (p4y - p3y) * (p2x - p1x) - (p4x - p3x) * (p2y - p1y);
-    if (Math.abs(denom) < 0.0001) return false;
-    const ua = ((p4x - p3x) * (p1y - p3y) - (p4y - p3y) * (p1x - p3x)) / denom;
-    const ub = ((p2x - p1x) * (p1y - p3y) - (p2y - p1y) * (p1x - p3x)) / denom;
-    return ua >= 0 && ua <= 1 && ub >= 0 && ub <= 1;
+  // Interseção de Raio com Segmento
+  function rayIntersectSegment(rx, ry, dx, dy, p1x, p1y, p2x, p2y) {
+    const sx = p2x - p1x;
+    const sy = p2y - p1y;
+    const denom = dx * sy - dy * sx;
+    if (Math.abs(denom) < 0.00001) return null;
+    const t = ((p1x - rx) * sy - (p1y - ry) * sx) / denom;
+    const u = ((p1x - rx) * dy - (p1y - ry) * dx) / denom;
+    if (t >= 0 && u >= 0 && u <= 1) {
+      return t;
+    }
+    return null;
   }
 
-  function lineIntersectsRect(x1, y1, x2, y2, rx, ry, rw, rh) {
-    if (x1 >= rx && x1 <= rx + rw && y1 >= ry && y1 <= ry + rh) return true;
-    if (x2 >= rx && x2 <= rx + rw && y2 >= ry && y2 <= ry + rh) return true;
-    return (
-      lineIntersectsLine(x1, y1, x2, y2, rx, ry, rx + rw, ry) ||
-      lineIntersectsLine(x1, y1, x2, y2, rx + rw, ry, rx + rw, ry + rh) ||
-      lineIntersectsLine(x1, y1, x2, y2, rx, ry + rh, rx + rw, ry + rh) ||
-      lineIntersectsLine(x1, y1, x2, y2, rx, ry, rx, ry + rh)
-    );
-  }
+  // Raio atingindo obstáculo ou borda do canvas
+  function getRayHit(rx, ry, dx, dy, maxDist) {
+    const w = canvas.width;
+    const h = canvas.height;
+    let minDist = maxDist;
 
-  function hasLineOfSight(x1, y1, x2, y2) {
+    // Bordas do canvas
+    const bounds = [
+      [0, 0, w, 0],
+      [w, 0, w, h],
+      [w, h, 0, h],
+      [0, h, 0, 0],
+    ];
+    for (let i = 0; i < bounds.length; i++) {
+      const b = bounds[i];
+      const t = rayIntersectSegment(rx, ry, dx, dy, b[0], b[1], b[2], b[3]);
+      if (t !== null && t < minDist) {
+        minDist = t;
+      }
+    }
+
+    // Arestas de cada obstáculo
     for (let i = 0; i < obstacles.length; i++) {
       const o = obstacles[i];
-      if (lineIntersectsRect(x1, y1, x2, y2, o.x, o.y, o.w, o.h)) {
-        return false;
+      const edges = [
+        [o.x, o.y, o.x + o.w, o.y],
+        [o.x + o.w, o.y, o.x + o.w, o.y + o.h],
+        [o.x + o.w, o.y + o.h, o.x, o.y + o.h],
+        [o.x, o.y + o.h, o.x, o.y],
+      ];
+      for (let j = 0; j < edges.length; j++) {
+        const e = edges[j];
+        const t = rayIntersectSegment(rx, ry, dx, dy, e[0], e[1], e[2], e[3]);
+        if (t !== null && t < minDist) {
+          minDist = t;
+        }
+      }
+    }
+
+    return {
+      x: rx + dx * minDist,
+      y: ry + dy * minDist,
+      dist: minDist,
+    };
+  }
+
+  // Checagem rigorosa de Linha de Visão (Raycast 2D: paredes bloqueiam 100%)
+  function hasLineOfSight(x1, y1, x2, y2) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 2) return true;
+    const ndx = dx / dist;
+    const ndy = dy / dist;
+
+    for (let i = 0; i < obstacles.length; i++) {
+      const o = obstacles[i];
+      const edges = [
+        [o.x, o.y, o.x + o.w, o.y],
+        [o.x + o.w, o.y, o.x + o.w, o.y + o.h],
+        [o.x + o.w, o.y + o.h, o.x, o.y + o.h],
+        [o.x, o.y + o.h, o.x, o.y],
+      ];
+      for (let j = 0; j < edges.length; j++) {
+        const e = edges[j];
+        const t = rayIntersectSegment(x1, y1, ndx, ndy, e[0], e[1], e[2], e[3]);
+        if (t !== null && t > 1.0 && t < dist - 2.0) {
+          return false;
+        }
       }
     }
     return true;
   }
 
-  function resolveEntityCollision(entity, radius) {
+  // Verificação de Colisão contra Obstáculos
+  function checkCollision(px, py, radius) {
     const w = canvas.width;
     const h = canvas.height;
-    if (entity.x < radius + 4) entity.x = radius + 4;
-    if (entity.x > w - radius - 4) entity.x = w - radius - 4;
-    if (entity.y < radius + 4) entity.y = radius + 4;
-    if (entity.y > h - radius - 4) entity.y = h - radius - 4;
-
+    if (px - radius < 4 || px + radius > w - 4 || py - radius < 4 || py + radius > h - 4) {
+      return true;
+    }
     for (let i = 0; i < obstacles.length; i++) {
       const o = obstacles[i];
-      const nearestX = Math.max(o.x, Math.min(entity.x, o.x + o.w));
-      const nearestY = Math.max(o.y, Math.min(entity.y, o.y + o.h));
-      const dx = entity.x - nearestX;
-      const dy = entity.y - nearestY;
-      const distSq = dx * dx + dy * dy;
-      if (distSq < radius * radius) {
-        const dist = Math.sqrt(distSq) || 1;
-        const overlap = radius - dist;
-        entity.x += (dx / dist) * overlap;
-        entity.y += (dy / dist) * overlap;
+      const closestX = Math.max(o.x, Math.min(px, o.x + o.w));
+      const closestY = Math.max(o.y, Math.min(py, o.y + o.h));
+      const dx = px - closestX;
+      const dy = py - closestY;
+      if (dx * dx + dy * dy < radius * radius) {
+        return true;
       }
+    }
+    return false;
+  }
+
+  // Movimentação com Deslize em Eixos (Wall-Sliding: impede que entidades travem nas quinas)
+  function moveEntityWithSliding(entity, targetX, targetY, speed) {
+    const dx = targetX - entity.x;
+    const dy = targetY - entity.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 1.5) return;
+
+    const step = Math.min(dist, speed);
+    const vx = (dx / dist) * step;
+    const vy = (dy / dist) * step;
+
+    // Desloca em X; se colidir, desfaz para deslizar em Y
+    entity.x += vx;
+    if (checkCollision(entity.x, entity.y, entity.radius)) {
+      entity.x -= vx;
+    }
+
+    // Desloca em Y; se colidir, desfaz para deslizar em X
+    entity.y += vy;
+    if (checkCollision(entity.x, entity.y, entity.radius)) {
+      entity.y -= vy;
     }
   }
 
-  // Alternador de Modo da IA (Heatmap 3D vs Patrulha Cega)
+  // Algoritmo BFS para encontrar menor rota no NavMesh através de portas
+  function findNavPath(startIdx, goalIdx) {
+    if (startIdx === goalIdx) return [startIdx];
+    const queue = [[startIdx]];
+    const visited = new Set([startIdx]);
+
+    while (queue.length > 0) {
+      const path = queue.shift();
+      const node = path[path.length - 1];
+      const neighbors = navAdj[node] || [];
+
+      for (let i = 0; i < neighbors.length; i++) {
+        const n = neighbors[i];
+        if (!visited.has(n)) {
+          visited.add(n);
+          const newPath = path.concat([n]);
+          if (n === goalIdx) {
+            return newPath;
+          }
+          queue.push(newPath);
+        }
+      }
+    }
+    return [startIdx];
+  }
+
+  // Ponto de pilotagem inteligente: se linha de visão direta estiver bloqueada, segue o NavMesh
+  function getNavSteeringPoint(fromX, fromY, toX, toY) {
+    if (hasLineOfSight(fromX, fromY, toX, toY)) {
+      return { x: toX, y: toY };
+    }
+
+    // Acha nó visível mais próximo da origem
+    let bestStart = null;
+    let minStartDist = Infinity;
+    for (let i = 0; i < navNodes.length; i++) {
+      const n = navNodes[i];
+      if (hasLineOfSight(fromX, fromY, n.x, n.y)) {
+        const d = Math.hypot(n.x - fromX, n.y - fromY);
+        if (d < minStartDist) {
+          minStartDist = d;
+          bestStart = i;
+        }
+      }
+    }
+    if (bestStart === null) {
+      bestStart = 0;
+      let minD = Infinity;
+      for (let i = 0; i < navNodes.length; i++) {
+        const d = Math.hypot(navNodes[i].x - fromX, navNodes[i].y - fromY);
+        if (d < minD) { minD = d; bestStart = i; }
+      }
+    }
+
+    // Acha nó visível mais próximo do destino
+    let bestGoal = null;
+    let minGoalDist = Infinity;
+    for (let i = 0; i < navNodes.length; i++) {
+      const n = navNodes[i];
+      if (hasLineOfSight(toX, toY, n.x, n.y)) {
+        const d = Math.hypot(n.x - toX, n.y - toY);
+        if (d < minGoalDist) {
+          minGoalDist = d;
+          bestGoal = i;
+        }
+      }
+    }
+    if (bestGoal === null) {
+      bestGoal = 3;
+      let minD = Infinity;
+      for (let i = 0; i < navNodes.length; i++) {
+        const d = Math.hypot(navNodes[i].x - toX, navNodes[i].y - toY);
+        if (d < minD) { minD = d; bestGoal = i; }
+      }
+    }
+
+    const path = findNavPath(bestStart, bestGoal);
+    let nextNodeIdx = path[0];
+    if (Math.hypot(navNodes[nextNodeIdx].x - fromX, navNodes[nextNodeIdx].y - fromY) < 18 && path.length > 1) {
+      nextNodeIdx = path[1];
+    }
+    return { x: navNodes[nextNodeIdx].x, y: navNodes[nextNodeIdx].y };
+  }
+
+  // Controles
   if (modeBtn) {
     modeBtn.addEventListener("click", () => {
       isProbabilisticMode = !isProbabilisticMode;
@@ -427,17 +601,16 @@ function initThariumHeatmapSimulation() {
     });
   }
 
-  // Registro térmico no mapa de calor
+  // Rastro térmico
   function recordPlayerPosition() {
     const col = Math.floor(player.x / GRID_SIZE);
     const row = Math.floor(player.y / GRID_SIZE);
     if (col >= 0 && col < cols && row >= 0 && row < rows) {
       const idx = row * cols + col;
-      heatmap[idx] = Math.min(255, heatmap[idx] + 16);
+      heatmap[idx] = Math.min(255, heatmap[idx] + 18);
     }
   }
 
-  // Resfriamento contínuo da pegada térmica
   setInterval(() => {
     for (let i = 0; i < heatmap.length; i++) {
       if (heatmap[i] > 0) heatmap[i] = Math.max(0, heatmap[i] - 1);
@@ -465,7 +638,7 @@ function initThariumHeatmapSimulation() {
     ctx.fillStyle = "#040810";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // 1. Renderiza Grade Térmica (Heatmap Interpolação Azul -> Vermelho)
+    // 1. Grade Térmica
     cols = Math.floor(canvas.width / GRID_SIZE);
     rows = Math.floor(canvas.height / GRID_SIZE);
 
@@ -477,15 +650,15 @@ function initThariumHeatmapSimulation() {
           const red = Math.floor(ratio * 255);
           const blue = Math.floor((1 - ratio) * 220);
           const green = Math.floor(Math.sin(ratio * Math.PI) * 110);
-          ctx.fillStyle = `rgba(${red}, ${green}, ${blue}, ${ratio * 0.50})`;
+          ctx.fillStyle = `rgba(${red}, ${green}, ${blue}, ${ratio * 0.48})`;
           ctx.fillRect(c * GRID_SIZE, r * GRID_SIZE, GRID_SIZE - 1, GRID_SIZE - 1);
         }
       }
     }
 
-    // 2. Renderiza Paredes do Labirinto (Obstáculos Oclusivos)
+    // 2. Paredes do Labirinto (Obstáculos Oclusivos)
     ctx.fillStyle = "#0D1826";
-    ctx.strokeStyle = "rgba(16, 185, 129, 0.28)";
+    ctx.strokeStyle = "rgba(16, 185, 129, 0.35)";
     ctx.lineWidth = 1.5;
     for (let i = 0; i < obstacles.length; i++) {
       const o = obstacles[i];
@@ -493,42 +666,42 @@ function initThariumHeatmapSimulation() {
       ctx.strokeRect(o.x, o.y, o.w, o.h);
     }
 
-    // 3. Movimentação Autônoma do Jogador
-    if (waypoints.length > 0) {
-      const currentTarget = waypoints[player.currentWaypointIdx];
-      let dirX = currentTarget.x - player.x;
-      let dirY = currentTarget.y - player.y;
-      const distToTarget = Math.hypot(dirX, dirY);
+    // 3. Movimentação Autônoma do Jogador (Navegando entre salas)
+    if (navNodes.length > 0) {
+      const targetNode = navNodes[player.targetNodeIdx];
+      const distToNode = Math.hypot(targetNode.x - player.x, targetNode.y - player.y);
 
-      if (distToTarget < 16) {
-        let nextIdx;
-        do {
-          nextIdx = Math.floor(Math.random() * waypoints.length);
-        } while (nextIdx === player.currentWaypointIdx && waypoints.length > 1);
-        player.currentWaypointIdx = nextIdx;
+      if (distToNode < 16) {
+        const neighbors = navAdj[player.targetNodeIdx] || [0];
+        if (currentAiState === AI_STATE.CHASE) {
+          // Fuga inteligente: escolhe o vizinho que mais distancia da IA
+          let bestNeighbor = neighbors[0];
+          let maxD = -1;
+          for (let i = 0; i < neighbors.length; i++) {
+            const nb = neighbors[i];
+            const d = Math.hypot(navNodes[nb].x - ghost.x, navNodes[nb].y - ghost.y);
+            if (d > maxD) {
+              maxD = d;
+              bestNeighbor = nb;
+            }
+          }
+          player.targetNodeIdx = bestNeighbor;
+        } else {
+          // Ronda orgânica aleatória
+          player.targetNodeIdx = neighbors[Math.floor(Math.random() * neighbors.length)];
+        }
       }
 
-      // Se a IA estiver em perseguição e próxima, o player tenta fugir na direção oposta
-      const distToGhost = Math.hypot(player.x - ghost.x, player.y - ghost.y);
-      let runSpeed = 1.4;
-      if (currentAiState === AI_STATE.CHASE && distToGhost < 140) {
-        runSpeed = 2.1;
-        const fleeX = player.x - ghost.x;
-        const fleeY = player.y - ghost.y;
-        const fleeLen = Math.hypot(fleeX, fleeY) || 1;
-        dirX = dirX * 0.4 + (fleeX / fleeLen) * distToTarget * 0.6;
-        dirY = dirY * 0.4 + (fleeY / fleeLen) * distToTarget * 0.6;
+      let pSpeed = 1.35;
+      if (currentAiState === AI_STATE.CHASE) {
+        pSpeed = 2.05; // Adrenalina de fuga
       }
-
-      const moveLen = Math.hypot(dirX, dirY) || 1;
-      player.x += (dirX / moveLen) * runSpeed;
-      player.y += (dirY / moveLen) * runSpeed;
+      moveEntityWithSliding(player, targetNode.x, targetNode.y, pSpeed);
+      recordPlayerPosition();
     }
-    resolveEntityCollision(player, player.radius);
-    recordPlayerPosition();
 
-    // 4. Checagem de Campo de Visão da IA (FOV 120º + Raycast Oclusivo)
-    const fovAngle = (120 * Math.PI) / 180; // 120 graus
+    // 4. Detecção de Visão da IA (FOV 120º + Raycast Oclusivo)
+    const fovAngle = (120 * Math.PI) / 180;
     const viewRadius = 115;
     const dx = player.x - ghost.x;
     const dy = player.y - ghost.y;
@@ -541,6 +714,7 @@ function initThariumHeatmapSimulation() {
       while (diffAngle < -Math.PI) diffAngle += 2 * Math.PI;
       while (diffAngle > Math.PI) diffAngle -= 2 * Math.PI;
 
+      // Se o ângulo está no cone, verifica oclusão por raycast (parede bloqueia)
       if (Math.abs(diffAngle) <= fovAngle / 2) {
         if (hasLineOfSight(ghost.x, ghost.y, player.x, player.y)) {
           playerInSight = true;
@@ -550,29 +724,27 @@ function initThariumHeatmapSimulation() {
 
     // 5. Máquina de Estados da IA Fantasma
     if (playerInSight) {
-      // CONTATO VISUAL DIRETO: Perseguição Imediata
       currentAiState = AI_STATE.CHASE;
       lastKnownPos = { x: player.x, y: player.y };
       ghost.targetX = player.x;
       ghost.targetY = player.y;
-      ghost.speed = 2.4;
+      ghost.speed = 2.25;
     } else {
       if (currentAiState === AI_STATE.CHASE) {
-        // Perdeu contato visual: Entra em investigação do ÚLTIMO PONTO VISTO
+        // Perdeu de vista: transiciona para investigar o ÚLTIMO PONTO VISTO
         currentAiState = AI_STATE.INVESTIGATE;
         if (lastKnownPos) {
           ghost.targetX = lastKnownPos.x;
           ghost.targetY = lastKnownPos.y;
         }
-        ghost.speed = 2.0;
+        ghost.speed = 1.95;
       } else if (currentAiState === AI_STATE.INVESTIGATE) {
-        // Rumo ao último ponto visto
         if (lastKnownPos) {
           ghost.targetX = lastKnownPos.x;
           ghost.targetY = lastKnownPos.y;
           const distToLast = Math.hypot(ghost.x - lastKnownPos.x, ghost.y - lastKnownPos.y);
-          if (distToLast < 10) {
-            // Chegou no último ponto visto: inicia varredura angular
+          if (distToLast < 14) {
+            // Chegou no último ponto visto: executa varredura angular
             currentAiState = AI_STATE.SEARCHING;
             searchTimer = 65;
             searchBaseAngle = ghost.angle;
@@ -581,17 +753,16 @@ function initThariumHeatmapSimulation() {
           currentAiState = AI_STATE.PATROL;
         }
       } else if (currentAiState === AI_STATE.SEARCHING) {
-        // Varredura angular no ponto de alerta
         searchTimer--;
-        ghost.angle = searchBaseAngle + Math.sin(searchTimer * 0.14) * 1.25;
+        ghost.angle = searchBaseAngle + Math.sin(searchTimer * 0.14) * 1.35;
         if (searchTimer <= 0) {
           currentAiState = AI_STATE.PATROL;
           lastKnownPos = null;
           ghost.patrolCooldown = 0;
         }
       } else {
-        // PATRULHA NORMAL (Heatmap ou Cega)
-        ghost.speed = 1.4;
+        // Patrulha via Heatmap ou Cega
+        ghost.speed = 1.45;
         ghost.patrolCooldown--;
         if (ghost.patrolCooldown <= 0) {
           if (isProbabilisticMode) {
@@ -599,43 +770,44 @@ function initThariumHeatmapSimulation() {
             if (hotSpot) {
               ghost.targetX = hotSpot.x;
               ghost.targetY = hotSpot.y;
-            } else if (waypoints.length > 0) {
-              const randWp = waypoints[Math.floor(Math.random() * waypoints.length)];
-              ghost.targetX = randWp.x;
-              ghost.targetY = randWp.y;
+            } else if (navNodes.length > 0) {
+              const randNode = navNodes[Math.floor(Math.random() * navNodes.length)];
+              ghost.targetX = randNode.x;
+              ghost.targetY = randNode.y;
             }
           } else {
-            ghost.targetX = Math.random() * (canvas.width - 40) + 20;
-            ghost.targetY = Math.random() * (canvas.height - 40) + 20;
+            const randNode = navNodes[Math.floor(Math.random() * navNodes.length)];
+            ghost.targetX = randNode.x;
+            ghost.targetY = randNode.y;
           }
-          ghost.patrolCooldown = 50;
+          ghost.patrolCooldown = 55;
         }
       }
     }
 
-    // 6. Atualização de Posição & Ângulo da IA Fantasma
+    // 6. Atualização de Movimentação da IA com NavMesh e Deslize
     if (currentAiState !== AI_STATE.SEARCHING) {
-      const gdx = ghost.targetX - ghost.x;
-      const gdy = ghost.targetY - ghost.y;
-      const gdist = Math.hypot(gdx, gdy);
-      if (gdist > 3) {
-        ghost.x += (gdx / gdist) * ghost.speed;
-        ghost.y += (gdist > 0 ? (gdy / gdist) : 0) * ghost.speed;
-        const targetAngle = Math.atan2(gdy, gdx);
+      const steerPt = getNavSteeringPoint(ghost.x, ghost.y, ghost.targetX, ghost.targetY);
+      const prevX = ghost.x;
+      const prevY = ghost.y;
+      moveEntityWithSliding(ghost, steerPt.x, steerPt.y, ghost.speed);
+
+      const movedX = ghost.x - prevX;
+      const movedY = ghost.y - prevY;
+      if (Math.hypot(movedX, movedY) > 0.2) {
+        const targetAngle = Math.atan2(movedY, movedX);
         let diff = targetAngle - ghost.angle;
         while (diff < -Math.PI) diff += 2 * Math.PI;
         while (diff > Math.PI) diff -= 2 * Math.PI;
-        ghost.angle += diff * 0.18;
+        ghost.angle += diff * 0.2;
       }
     }
-    resolveEntityCollision(ghost, ghost.radius);
 
     // 7. Renderização do Marcador "ÚLTIMO PONTO VISTO"
     if (lastKnownPos && (currentAiState === AI_STATE.INVESTIGATE || currentAiState === AI_STATE.SEARCHING)) {
       alertPulse = (alertPulse + 0.08) % (Math.PI * 2);
-      const ringRadius = 10 + Math.sin(alertPulse) * 4;
+      const ringRadius = 9 + Math.sin(alertPulse) * 3.5;
 
-      // Linha tracejada indicando rumo da IA ao ponto
       ctx.beginPath();
       ctx.setLineDash([4, 4]);
       ctx.moveTo(ghost.x, ghost.y);
@@ -645,7 +817,6 @@ function initThariumHeatmapSimulation() {
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // Círculo tático e mira
       ctx.beginPath();
       ctx.arc(lastKnownPos.x, lastKnownPos.y, ringRadius, 0, Math.PI * 2);
       ctx.strokeStyle = "#F97316";
@@ -657,28 +828,38 @@ function initThariumHeatmapSimulation() {
       ctx.arc(lastKnownPos.x, lastKnownPos.y, 3, 0, Math.PI * 2);
       ctx.fill();
 
-      // Rótulo
       ctx.font = "9px monospace";
       ctx.fillStyle = "#F97316";
       ctx.textAlign = "center";
-      ctx.fillText("ÚLTIMO PONTO VISTO", lastKnownPos.x, lastKnownPos.y - 14);
+      ctx.fillText("ÚLTIMO PONTO VISTO", lastKnownPos.x, lastKnownPos.y - 13);
       ctx.textAlign = "start";
     }
 
-    // 8. Renderização do Cone de Visão (120º)
+    // 8. Renderização do Cone de Visão com Raycasting Real (Bloqueado fisicamente pelas paredes)
+    const numRays = 36;
+    const startAngle = ghost.angle - fovAngle / 2;
+    const angleStep = fovAngle / (numRays - 1);
+
     ctx.beginPath();
     ctx.moveTo(ghost.x, ghost.y);
-    ctx.arc(ghost.x, ghost.y, viewRadius, ghost.angle - fovAngle / 2, ghost.angle + fovAngle / 2);
-    ctx.closePath();
 
+    for (let i = 0; i < numRays; i++) {
+      const rayAngle = startAngle + i * angleStep;
+      const rdx = Math.cos(rayAngle);
+      const rdy = Math.sin(rayAngle);
+      const hit = getRayHit(ghost.x, ghost.y, rdx, rdy, viewRadius);
+      ctx.lineTo(hit.x, hit.y);
+    }
+
+    ctx.closePath();
     if (currentAiState === AI_STATE.CHASE) {
-      ctx.fillStyle = "rgba(239, 68, 68, 0.32)";
+      ctx.fillStyle = "rgba(239, 68, 68, 0.35)";
       ctx.strokeStyle = "#EF4444";
     } else if (currentAiState === AI_STATE.INVESTIGATE || currentAiState === AI_STATE.SEARCHING) {
-      ctx.fillStyle = "rgba(249, 115, 22, 0.22)";
+      ctx.fillStyle = "rgba(249, 115, 22, 0.25)";
       ctx.strokeStyle = "#F97316";
     } else {
-      ctx.fillStyle = isProbabilisticMode ? "rgba(245, 158, 11, 0.14)" : "rgba(100, 116, 139, 0.12)";
+      ctx.fillStyle = isProbabilisticMode ? "rgba(245, 158, 11, 0.15)" : "rgba(100, 116, 139, 0.12)";
       ctx.strokeStyle = isProbabilisticMode ? "rgba(245, 158, 11, 0.45)" : "rgba(100, 116, 139, 0.35)";
     }
     ctx.lineWidth = 1.5;
@@ -693,7 +874,6 @@ function initThariumHeatmapSimulation() {
     ctx.fill();
 
     if (currentAiState === AI_STATE.CHASE) {
-      // Pulso de pânico no jogador
       ctx.beginPath();
       ctx.arc(player.x, player.y, player.radius + 5 + Math.sin(alertPulse * 2) * 2, 0, Math.PI * 2);
       ctx.strokeStyle = "rgba(239, 68, 68, 0.7)";
