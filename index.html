@@ -100,8 +100,13 @@
               <span class="btn-icon">→</span>
             </a>
 
+            <button id="open-cv-btn" class="btn btn-secondary">
+              <span>Dossiê / CV</span>
+              <span>📄</span>
+            </button>
+
             <a href="https://github.com/GuilhermeGustavoWeber" target="_blank" rel="noopener noreferrer" class="btn btn-secondary">
-              <span>GitHub Oficial</span>
+              <span>GitHub</span>
               <span>↗</span>
             </a>
           </div>
@@ -201,9 +206,16 @@
             <div class="heatmap-canvas-container">
               <div class="heatmap-canvas-header">
                 <span>SIMULAÇÃO AO VIVO: AGENTE FANTASMA RASTREANDO CALOR TÉRMICO</span>
-                <span style="color: var(--gold);">IA NAVMESH ATIVA</span>
+                <span id="tharium-mode-status" style="color: var(--gold);">IA NAVMESH: HEATMAP 3D</span>
               </div>
               <canvas id="tharium-heatmap-canvas"></canvas>
+              <div class="canvas-controls-bar">
+                <div style="display: flex; gap: 6px; align-items: center;">
+                  <button id="tharium-mode-btn" class="canvas-btn active" title="Alternar entre modo probabilístico e patrulha cega">Alternar Modo IA</button>
+                  <button id="tharium-clear-btn" class="canvas-btn" title="Limpar grade térmica">Limpar Calor</button>
+                </div>
+                <span class="canvas-hint">Mova o cursor sobre o canvas para guiar o jogador</span>
+              </div>
             </div>
 
             <div class="card-stats-box">
@@ -223,7 +235,10 @@
           </div>
 
           <div class="card-footer">
-            <span style="font-family: var(--f-mono); font-size: 0.75rem; color: var(--muted);">Projeto Prático Integrado • Censores de Calor em Gizmos</span>
+            <button class="btn-details" data-project="tharium">
+              <span>Detalhes da Arquitetura</span>
+              <span>→</span>
+            </button>
             <span class="card-link-repo" style="color: var(--green-ink);">
               <span>Assets & Scripts Locais</span>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
@@ -244,8 +259,23 @@
 
             <h3 class="card-title">SIDI v2.0 — Copiloto Cognitivo</h3>
             <p class="card-desc">
-              Copiloto de engenharia e raciocínio pessoal construído 100% sobre a biblioteca padrão do Python. Possui <strong>Cadeia Merkle SHA-256</strong> para auditoria contínua de integridade, busca híbrida SQLite FTS5 (BM25) combinada a <strong>Reciprocal Rank Fusion (RRF)</strong>, plasticidade sináptica Hebbiana e governança anti-sicofancia no córtex pré-frontal.
+              Copiloto de engenharia e raciocínio pessoal construído 100% sobre a biblioteca padrão do Python. Possui <strong>Cadeia Merkle SHA-256</strong> para auditoria contínua de integridade, busca híbrida SQLite FTS5 (BM25) combinada a <strong>Reciprocal Rank Fusion (RRF)</strong>, plasticidade sináptica Hebbiana e governança pré-frontal.
             </p>
+
+            <!-- Mini Simulador Hebbiano no Card do SIDI -->
+            <div class="sidi-graph-container">
+              <div class="heatmap-canvas-header">
+                <span>SIMULAÇÃO CORTICAL HEBBIANA (PULSOS DE ENERGIA)</span>
+                <span id="sidi-pulse-status" style="color: var(--green-ink);">ESTÁVEL</span>
+              </div>
+              <canvas id="sidi-graph-canvas"></canvas>
+              <div class="sidi-pulse-group">
+                <button class="sidi-pulse-btn" data-lobe="frontal">⚡ Segurança</button>
+                <button class="sidi-pulse-btn" data-lobe="parietal">⚡ Memória</button>
+                <button class="sidi-pulse-btn" data-lobe="temporal">⚡ Consolidação</button>
+                <button class="sidi-pulse-btn" data-lobe="occipital">⚡ Design</button>
+              </div>
+            </div>
 
             <div class="card-stats-box">
               <div class="stat-metric-item">
@@ -264,7 +294,10 @@
           </div>
 
           <div class="card-footer">
-            <span style="font-family: var(--f-mono); font-size: 0.75rem; color: var(--muted);">Dashboard 2D Hebbiano & Taint Tracking</span>
+            <button class="btn-details" data-project="sidi">
+              <span>Detalhes da Arquitetura</span>
+              <span>→</span>
+            </button>
             <a href="https://github.com/GuilhermeGustavoWeber/sidi" target="_blank" rel="noopener noreferrer" class="card-link-repo">
               <span>Repositório GitHub</span>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
@@ -305,7 +338,10 @@
           </div>
 
           <div class="card-footer">
-            <span style="font-family: var(--f-mono); font-size: 0.75rem; color: var(--muted);">Arquitetura Transacional SQLite & Pydantic</span>
+            <button class="btn-details" data-project="novastore">
+              <span>Detalhes da Arquitetura</span>
+              <span>→</span>
+            </button>
             <a href="https://github.com/GuilhermeGustavoWeber/novastore" target="_blank" rel="noopener noreferrer" class="card-link-repo">
               <span>Repositório GitHub</span>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
@@ -346,7 +382,10 @@
           </div>
 
           <div class="card-footer">
-            <span style="font-family: var(--f-mono); font-size: 0.75rem; color: var(--muted);">Impacto Real em Produção Ornitológica</span>
+            <button class="btn-details" data-project="gould">
+              <span>Detalhes da Arquitetura</span>
+              <span>→</span>
+            </button>
             <span class="card-link-repo" style="color: var(--green-ink);">
               <span>Software de Campo Ativo</span>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
@@ -387,7 +426,10 @@
           </div>
 
           <div class="card-footer">
-            <span style="font-family: var(--f-mono); font-size: 0.75rem; color: var(--muted);">Computação Fundamental & Baixo Nível</span>
+            <button class="btn-details" data-project="pedidos">
+              <span>Detalhes da Arquitetura</span>
+              <span>→</span>
+            </button>
             <a href="https://github.com/GuilhermeGustavoWeber/api-pedidos-main" target="_blank" rel="noopener noreferrer" class="card-link-repo">
               <span>Repositório GitHub</span>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
@@ -428,7 +470,10 @@
           </div>
 
           <div class="card-footer">
-            <span style="font-family: var(--f-mono); font-size: 0.75rem; color: var(--muted);">Algoritmos e Estruturas de Dados Avançadas</span>
+            <button class="btn-details" data-project="grafos">
+              <span>Detalhes da Arquitetura</span>
+              <span>→</span>
+            </button>
             <a href="https://github.com/GuilhermeGustavoWeber/grafos-main" target="_blank" rel="noopener noreferrer" class="card-link-repo">
               <span>Repositório GitHub</span>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
@@ -576,6 +621,72 @@
         </div>
       </div>
     </section>
+
+    <!-- Modal de Arquitetura em Detalhes -->
+    <div id="project-modal" class="modal-backdrop" aria-hidden="true" role="dialog">
+      <div class="modal-window">
+        <div class="modal-header">
+          <div class="modal-header-info">
+            <h3 id="modal-project-title">Título do Projeto</h3>
+            <div id="modal-project-tags" class="card-tag-group" style="margin-top: 6px;"></div>
+          </div>
+          <button id="modal-close-btn" class="modal-close-btn" aria-label="Fechar Modal">✕</button>
+        </div>
+        <div id="modal-project-body" class="modal-body">
+          <!-- Conteúdo dinâmico injetado via JS -->
+        </div>
+        <div class="modal-footer">
+          <a id="modal-project-link" href="#" target="_blank" rel="noopener noreferrer" class="btn btn-primary" style="padding: 10px 22px; font-size: 0.875rem;">
+            <span>Ver no GitHub</span>
+            <span class="btn-icon">↗</span>
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal de Dossiê Executivo / CV -->
+    <div id="cv-modal" class="modal-backdrop" aria-hidden="true" role="dialog">
+      <div class="modal-window" style="max-width: 760px;">
+        <div class="modal-header">
+          <div class="modal-header-info">
+            <h3>Dossiê Executivo de Engenharia</h3>
+            <span style="font-family: var(--f-mono); font-size: 0.75rem; color: var(--green-ink);">Guilherme Gustavo Weber • Indaiatuba - SP</span>
+          </div>
+          <button id="cv-modal-close-btn" class="modal-close-btn" aria-label="Fechar Modal">✕</button>
+        </div>
+        <div class="modal-body">
+          <h4>Perfil Profissional</h4>
+          <p>Estudante de Engenharia de Computação (8º semestre, UniMAX) especializado em Arquitetura de Sistemas, Inteligência Artificial Autônoma, Engenharia de Software Fullstack e Baixo Nível. Praticante de soberania técnica (zero dependências desnecessárias, tipagem estrita com mypy/TypeScript, testes automatizados e integridade criptográfica).</p>
+          
+          <h4>Formação Acadêmica</h4>
+          <p><strong>Bacharelado em Engenharia de Computação</strong> — Centro Universitário Max Planck (UniMAX), Indaiatuba - SP.<br>Conclusão prevista: 2026 (81% concluído). Destaque em Compiladores e Projeto Prático Integrado.</p>
+          
+          <h4>Principais Conquistas & Premiações</h4>
+          <p><strong>1º Lugar no TechDay 2025 (UniMAX)</strong> — Projeto Tharium House: Jogo 3D desenvolvido em Unity/C# com IA de perseguição adaptativa por mapa de calor espacial tridimensional e visão cônica de 120º.</p>
+
+          <h4>Projetos Âncora</h4>
+          <ul style="padding-left: 1.25rem; margin-top: 0.5rem; display: flex; flex-direction: column; gap: 8px;">
+            <li><strong>SIDI v2.0:</strong> Copiloto cognitivo 100% Python stdlib com Cadeia Merkle SHA-256 de auditoria, busca híbrida SQLite FTS5 (BM25) + RRF e grafo hebbiano. 17/17 testes aprovados e mypy strict.</li>
+            <li><strong>NovaStore v3.0:</strong> E-commerce E2E em FastAPI + SQLite com painel administrativo executivo (/admin), rastreamento logístico (/track), motor de cupons e design soft-neumorphic.</li>
+            <li><strong>Gould Manager v1.0:</strong> PWA mobile-first de manejo ornitológico com diário por gaiola, sincronização cruzada de amas/madrinhas e algoritmo de guarda anti-consanguinidade.</li>
+            <li><strong>API Pedidos em C:</strong> Sistema de alto rendimento em C puro com alocação manual de memória e structs nativas sem garbage collector.</li>
+          </ul>
+
+          <h4>Arsenal Técnico</h4>
+          <p><strong>Linguagens:</strong> Python (uv, mypy strict), C#, C puro, Java, TypeScript, SQL.<br><strong>Sistemas & Ferramentas:</strong> SQLite (FTS5), NavMesh, Merkle Trees, Linux, Windows, Git, FastAPI, Unity Engine.</p>
+        </div>
+        <div class="modal-footer">
+          <button onclick="window.print()" class="btn btn-secondary" style="padding: 9px 20px; font-size: 0.8125rem;">
+            <span>Imprimir / Salvar PDF</span>
+            <span>🖨️</span>
+          </button>
+          <a href="mailto:guilherme7weber@gmail.com" class="btn btn-primary" style="padding: 9px 20px; font-size: 0.8125rem;">
+            <span>Entrar em Contato</span>
+            <span class="btn-icon">→</span>
+          </a>
+        </div>
+      </div>
+    </div>
   </main>
 
   <script src="script.js"></script>
