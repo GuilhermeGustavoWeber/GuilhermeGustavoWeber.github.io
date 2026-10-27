@@ -245,8 +245,13 @@ function initThariumHeatmapSimulation() {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
 
+  const GRID_SIZE = 16;
+  let cols = 0;
+  let rows = 0;
+  let heatmap = [];
+
   function resizeCanvas() {
-    canvas.width = canvas.parentElement.clientWidth - 24;
+    canvas.width = Math.max(300, (canvas.parentElement ? canvas.parentElement.clientWidth : 600) - 24);
     canvas.height = 260;
     cols = Math.floor(canvas.width / GRID_SIZE);
     rows = Math.floor(canvas.height / GRID_SIZE);
@@ -254,11 +259,6 @@ function initThariumHeatmapSimulation() {
   }
   resizeCanvas();
   window.addEventListener("resize", resizeCanvas);
-
-  const GRID_SIZE = 16;
-  let cols = Math.floor(canvas.width / GRID_SIZE);
-  let rows = Math.floor(canvas.height / GRID_SIZE);
-  let heatmap = new Array(cols * rows).fill(0);
 
   // Zonas Arquiteturais do Casarão (Cômodos e Corredores do Tharium House)
   const ZONES = [
