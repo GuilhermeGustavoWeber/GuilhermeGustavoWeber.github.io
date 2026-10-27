@@ -57,7 +57,7 @@ Especialista no desenvolvimento de software resiliente, com proficiência em arq
 * **Bancos de Dados & Armazenamento:** SQLite (FTS5, JSON, índices avançados, concorrência WAL), Modelagem Relacional, Merkle Trees (DAGs).
 * **Arquitetura & Engenharia:** Sistemas Autônomos, IA Espacial (NavMesh, Heatmaps), REST APIs (FastAPI), PWA (Service Workers, Offline-First), Padrões Gang of Four, Princípios SOLID, Clean Architecture.
 * **Ferramentas & Infraestrutura:** Git / GitHub, Unity 3D, Linux / Bash, Windows PowerShell, Visual Studio / VS Code, pytest.
-* **Fundamentos da Computação:** Compiladores (análise léxica, sintática, semântica, AST, LLVM IR), Teoria dos Grafos, Análise de Complexidade Assintótica ($O(n)$).
+* **Fundamentos da Computação:** Teoria dos Grafos, Algoritmos e Estruturas de Dados, Alocação Manual de Memória, Análise de Complexidade Assintótica ($O(n)$).
 
 ---
 
@@ -66,7 +66,7 @@ Especialista no desenvolvimento de software resiliente, com proficiência em arq
 * **Bacharelado em Ciência da Computação**  
   *Centro Universitário Max Planck (UniMAX)* — Indaiatuba - SP  
   *Período:* 7º / 8º Semestre • Previsão de Conclusão: 2027  
-  *Destaque Acadêmico:* 1º Lugar no TechDay 2025; foco em Compiladores e Sistemas Operacionais.
+  *Destaque Acadêmico:* 1º Lugar Geral no TechDay 2025 com o projeto Tharium House.
 
 * **Engenharia de Software**  
   *Pontifícia Universidade Católica de Campinas (PUC-Campinas)* — Campinas - SP  

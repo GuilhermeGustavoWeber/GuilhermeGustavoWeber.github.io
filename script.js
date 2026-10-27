@@ -136,7 +136,7 @@ function initInteractiveTerminal() {
       `<span style="color: var(--green-ink); font-weight: 800;">[ARSENAL TÉCNICO]</span>`,
       `• Linguagens:   Python (uv/mypy), C#, C puro, Java, TypeScript, SQL`,
       `• Arquitetura:  Sistemas Autônomos, IA Espacial (NavMesh), SQLite FTS5, PWA`,
-      `• Fundamentos:  Teoria dos Grafos, Compiladores (LLVM IR), Alocação de Memória`,
+      `• Fundamentos:  Teoria dos Grafos, Algoritmos & Estruturas de Dados, Alocação de Memória`,
       `• Interface:    HTML5 Semântico, CSS Neumórfico, Vanilla ES6, Figma`,
     ],
     cv: () => {
