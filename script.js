@@ -539,7 +539,7 @@ const PROJECT_DETAILS = {
   tharium: {
     title: "Tharium House — 1º Lugar no TechDay 2025 (UniMAX)",
     tags: ["Unity 3D", "C#", "NavMesh", "IA Preditiva", "Gizmos"],
-    link: "https://github.com/GuilhermeGustavoWeber",
+    link: "https://github.com/GuilhermeGustavoWeber/tharium-house",
     body: `
       <h4>O Desafio de Engenharia</h4>
       <p>Em jogos de stealth tradicionais, a inteligência artificial usa rotas de patrulha fixas ou movimentos aleatórios (Random Walk), tornando o jogo previsível ou passivo. O objetivo foi criar uma IA estocástica que <strong>aprendesse com o comportamento real do jogador</strong> entre as partidas e calculasse interceptações preditivas nas zonas mais percorridas.</p>
