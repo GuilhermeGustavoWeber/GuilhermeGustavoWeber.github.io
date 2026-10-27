@@ -248,6 +248,9 @@ function initThariumHeatmapSimulation() {
   function resizeCanvas() {
     canvas.width = canvas.parentElement.clientWidth - 24;
     canvas.height = 260;
+    cols = Math.floor(canvas.width / GRID_SIZE);
+    rows = Math.floor(canvas.height / GRID_SIZE);
+    heatmap = new Array(cols * rows).fill(0);
   }
   resizeCanvas();
   window.addEventListener("resize", resizeCanvas);
@@ -257,13 +260,37 @@ function initThariumHeatmapSimulation() {
   let rows = Math.floor(canvas.height / GRID_SIZE);
   let heatmap = new Array(cols * rows).fill(0);
 
-  // Jogador Simulado (Velocidade ~1.95 px/frame)
+  // Zonas Arquiteturais do Casarão (Cômodos e Corredores do Tharium House)
+  const ZONES = [
+    { xRatio: 0.18, yRatio: 0.28 }, // Sala Noroeste (Biblioteca)
+    { xRatio: 0.50, yRatio: 0.25 }, // Corredor Norte
+    { xRatio: 0.82, yRatio: 0.28 }, // Sala Nordeste (Quarto Principal)
+    { xRatio: 0.50, yRatio: 0.52 }, // Hall Central
+    { xRatio: 0.18, yRatio: 0.74 }, // Sala Sudoeste (Cozinha)
+    { xRatio: 0.50, yRatio: 0.76 }, // Corredor Sul
+    { xRatio: 0.82, yRatio: 0.74 }, // Sala Sudeste (Porão / Depósito)
+  ];
+
+  let currentZoneIdx = 0;
+  let playerLinger = 25;
+
+  function getZoneCoord(idx) {
+    const z = ZONES[idx];
+    return {
+      x: z.xRatio * canvas.width + (Math.random() - 0.5) * 36,
+      y: z.yRatio * canvas.height + (Math.random() - 0.5) * 24,
+    };
+  }
+
+  // Jogador Simulado (Navega organicamente entre cômodos em 2D com velocidade ~1.95 px/frame)
   let player = {
     x: canvas.width * 0.25,
     y: canvas.height * 0.5,
-    vx: 1.5,
-    vy: 1.25,
+    vx: 1.2,
+    vy: 1.0,
+    speed: 1.95,
   };
+  let playerTarget = getZoneCoord(0);
 
   // IA Fantasma (Velocidades: Patrulha 1.20, Rumo ao último ponto 1.40, Perseguição 1.60 - sempre < jogador 1.95)
   let ghost = {
@@ -280,13 +307,18 @@ function initThariumHeatmapSimulation() {
     chaseCooldown: 0, // Período refratário após perseguição para obrigar patrulha
   };
 
-  // Gravação contínua do rastro de calor do jogador
+  // Gravação contínua do rastro de calor com difusão suave
   function recordPlayerPosition() {
     const col = Math.floor(player.x / GRID_SIZE);
     const row = Math.floor(player.y / GRID_SIZE);
     if (col >= 0 && col < cols && row >= 0 && row < rows) {
       const idx = row * cols + col;
-      heatmap[idx] = Math.min(255, heatmap[idx] + 10);
+      heatmap[idx] = Math.min(255, heatmap[idx] + 8);
+      // Difusão suave para as células vizinhas (efeito térmico esférico contínuo)
+      if (col > 0) heatmap[idx - 1] = Math.min(255, heatmap[idx - 1] + 2);
+      if (col < cols - 1) heatmap[idx + 1] = Math.min(255, heatmap[idx + 1] + 2);
+      if (row > 0) heatmap[idx - cols] = Math.min(255, heatmap[idx - cols] + 2);
+      if (row < rows - 1) heatmap[idx + cols] = Math.min(255, heatmap[idx + cols] + 2);
     }
   }
 
@@ -295,7 +327,7 @@ function initThariumHeatmapSimulation() {
     for (let i = 0; i < heatmap.length; i++) {
       if (heatmap[i] > 0) heatmap[i] = Math.max(0, heatmap[i] - 1);
     }
-  }, 100);
+  }, 90);
 
   // Extrai múltiplos centros de calor distintos para a IA transitar entre eles
   function getTopHotSpots() {
@@ -352,54 +384,84 @@ function initThariumHeatmapSimulation() {
       ghost.chaseCooldown--;
     }
 
-    // 2. Movimentação do Jogador com Evasão Tática ao ser Perseguido
+    // 2. Movimentação do Jogador em 2D (Exploração de Cômodos e Evasão Inteligente)
     const distToGhost = Math.hypot(player.x - ghost.x, player.y - ghost.y);
+    const isUnderThreat = ghost.state === "CHASE" || (distToGhost < 85 && ghost.chaseCooldown <= 0);
 
-    if (ghost.state === "CHASE" || distToGhost < 80) {
-      // Vetor de fuga: afasta suavemente na direção oposta ao fantasma
-      const escX = player.x - ghost.x;
-      const escY = player.y - ghost.y;
-      const escDist = Math.hypot(escX, escY) || 1;
-      
-      player.vx = player.vx * 0.90 + (escX / escDist) * 1.95 * 0.10;
-      player.vy = player.vy * 0.90 + (escY / escDist) * 1.95 * 0.10;
+    if (isUnderThreat) {
+      // EVASÃO TÁTICA: Foge para o cômodo/zona do mapa mais distante da IA
+      let bestDist = -1;
+      let bestIdx = currentZoneIdx;
+      for (let i = 0; i < ZONES.length; i++) {
+        const zx = ZONES[i].xRatio * canvas.width;
+        const zy = ZONES[i].yRatio * canvas.height;
+        const dGhost = Math.hypot(zx - ghost.x, zy - ghost.y);
+        if (dGhost > bestDist) {
+          bestDist = dGhost;
+          bestIdx = i;
+        }
+      }
+      currentZoneIdx = bestIdx;
+      playerTarget = {
+        x: ZONES[bestIdx].xRatio * canvas.width,
+        y: ZONES[bestIdx].yRatio * canvas.height,
+      };
+      playerLinger = 0; // Fuga contínua sem parar
     }
 
-    // Normaliza velocidade do jogador para 1.95 px/frame
-    const currentSpeedP = Math.hypot(player.vx, player.vy) || 1;
-    player.vx = (player.vx / currentSpeedP) * 1.95;
-    player.vy = (player.vy / currentSpeedP) * 1.95;
+    if (playerLinger > 0 && !isUnderThreat) {
+      // Jogador investiga a sala atual (desacelera e concentra calor térmico)
+      playerLinger--;
+      player.vx *= 0.85;
+      player.vy *= 0.85;
+    } else {
+      const pdx = playerTarget.x - player.x;
+      const pdy = playerTarget.y - player.y;
+      const pdist = Math.hypot(pdx, pdy);
+
+      if (pdist < 22 && !isUnderThreat) {
+        // Chegou na sala de destino: pausa para explorar e escolhe novo cômodo
+        playerLinger = Math.floor(Math.random() * 25) + 20; // 20-45 frames
+        let nextIdx;
+        do {
+          nextIdx = Math.floor(Math.random() * ZONES.length);
+        } while (nextIdx === currentZoneIdx);
+        currentZoneIdx = nextIdx;
+        playerTarget = getZoneCoord(nextIdx);
+      } else {
+        const desiredVx = (pdx / (pdist || 1)) * player.speed;
+        const desiredVy = (pdy / (pdist || 1)) * player.speed;
+
+        // Suaviza a curva de deslocamento em 2D
+        player.vx = player.vx * 0.88 + desiredVx * 0.12;
+        player.vy = player.vy * 0.88 + desiredVy * 0.12;
+
+        const curSpd = Math.hypot(player.vx, player.vy) || 1;
+        player.vx = (player.vx / curSpd) * player.speed;
+        player.vy = (player.vy / curSpd) * player.speed;
+      }
+    }
 
     player.x += player.vx;
     player.y += player.vy;
 
-    // Rebate nas bordas com perturbação para evitar trajetos lineares repetitivos
-    if (player.x <= 16) {
-      player.x = 16;
-      player.vx = Math.abs(player.vx);
-      player.vy += (Math.random() - 0.5) * 0.4;
-    } else if (player.x >= canvas.width - 16) {
-      player.x = canvas.width - 16;
-      player.vx = -Math.abs(player.vx);
-      player.vy += (Math.random() - 0.5) * 0.4;
-    }
-    if (player.y <= 16) {
-      player.y = 16;
-      player.vy = Math.abs(player.vy);
-      player.vx += (Math.random() - 0.5) * 0.4;
-    } else if (player.y >= canvas.height - 16) {
-      player.y = canvas.height - 16;
-      player.vy = -Math.abs(player.vy);
-      player.vx += (Math.random() - 0.5) * 0.4;
-    }
+    // Confinamento de segurança suave dentro do canvas
+    player.x = Math.max(18, Math.min(canvas.width - 18, player.x));
+    player.y = Math.max(18, Math.min(canvas.height - 18, player.y));
 
     recordPlayerPosition();
 
-    // Desenha Jogador (Ponto Esmeralda)
+    // Desenha Jogador (Ponto Esmeralda com halo suave)
     ctx.beginPath();
     ctx.arc(player.x, player.y, 6, 0, Math.PI * 2);
     ctx.fillStyle = "#10B981";
     ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, 9, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(16, 185, 129, 0.4)";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
 
     // 3. Verificação de Visão da IA (Cone de 120º e Raio de Visão de 90px)
     const fov = (120 * Math.PI) / 180;
