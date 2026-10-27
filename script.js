@@ -231,14 +231,16 @@ function initInteractiveTerminal() {
 }
 
 /* ==========================================================================
-   4. SIMULADOR INTERATIVO DO THARIUM HOUSE (CANVAS 2D)
+   4. SIMULADOR DO THARIUM HOUSE: IA ESPACIAL, FOV 120º & PERSEGUIÇÃO AO ÚLTIMO PONTO VISTO
    ========================================================================== */
 
 function initThariumHeatmapSimulation() {
   const canvas = document.getElementById("tharium-heatmap-canvas");
   const modeBtn = document.getElementById("tharium-mode-btn");
   const clearBtn = document.getElementById("tharium-clear-btn");
+  const respawnBtn = document.getElementById("tharium-respawn-btn");
   const modeStatus = document.getElementById("tharium-mode-status");
+  const aiStateEl = document.getElementById("tharium-ai-state");
   if (!canvas) return;
 
   const ctx = canvas.getContext("2d");
@@ -246,10 +248,13 @@ function initThariumHeatmapSimulation() {
 
   function resizeCanvas() {
     canvas.width = canvas.parentElement.clientWidth - 24;
-    canvas.height = 180;
+    canvas.height = 190;
   }
   resizeCanvas();
-  window.addEventListener("resize", resizeCanvas);
+  window.addEventListener("resize", () => {
+    resizeCanvas();
+    updateMapGeometry();
+  });
 
   const GRID_SIZE = 16;
   let cols = Math.floor(canvas.width / GRID_SIZE);
@@ -257,54 +262,155 @@ function initThariumHeatmapSimulation() {
   let heatmap = new Array(cols * rows).fill(0);
 
   let isProbabilisticMode = true;
-  let isMouseOverCanvas = false;
-  let mouseTarget = { x: canvas.width * 0.25, y: canvas.height * 0.5 };
 
-  // Jogador Simulado
+  // Estados da IA
+  const AI_STATE = {
+    PATROL: "PATROL",
+    CHASE: "CHASE",
+    INVESTIGATE: "INVESTIGATE",
+    SEARCHING: "SEARCHING",
+  };
+  let currentAiState = AI_STATE.PATROL;
+  let lastKnownPos = null; // { x, y }
+  let searchTimer = 0;
+  let searchBaseAngle = 0;
+  let alertPulse = 0;
+
+  // Geometria do Labirinto (Pilares e Corredores de Oclusão)
+  let obstacles = [];
+  let waypoints = [];
+
+  function updateMapGeometry() {
+    const w = canvas.width;
+    const h = canvas.height;
+    cols = Math.floor(w / GRID_SIZE);
+    rows = Math.floor(h / GRID_SIZE);
+    if (heatmap.length !== cols * rows) {
+      heatmap = new Array(cols * rows).fill(0);
+    }
+
+    // Pilares verticais criando corredores e quebras de linha de visão
+    obstacles = [
+      { x: w * 0.28, y: 0, w: 12, h: h * 0.40 },
+      { x: w * 0.28, y: h * 0.60, w: 12, h: h * 0.40 },
+      { x: w * 0.50, y: h * 0.22, w: 14, h: h * 0.56 },
+      { x: w * 0.74, y: 0, w: 12, h: h * 0.42 },
+      { x: w * 0.74, y: h * 0.58, w: 12, h: h * 0.42 },
+    ];
+
+    waypoints = [
+      { x: w * 0.12, y: h * 0.25 },
+      { x: w * 0.12, y: h * 0.75 },
+      { x: w * 0.38, y: h * 0.18 },
+      { x: w * 0.38, y: h * 0.82 },
+      { x: w * 0.62, y: h * 0.18 },
+      { x: w * 0.62, y: h * 0.82 },
+      { x: w * 0.88, y: h * 0.30 },
+      { x: w * 0.88, y: h * 0.70 },
+      { x: w * 0.50, y: h * 0.10 },
+      { x: w * 0.50, y: h * 0.90 },
+    ];
+  }
+  updateMapGeometry();
+
+  // Entidade Jogador (Autônomo navegando o labirinto)
   let player = {
-    x: canvas.width * 0.25,
+    x: canvas.width * 0.12,
     y: canvas.height * 0.5,
-    vx: 1.5,
-    vy: 1.2,
+    speed: 1.4,
+    currentWaypointIdx: 0,
+    radius: 6,
   };
 
-  // IA Fantasma (NavMesh Simulado)
+  // Entidade IA Fantasma (NavMesh & Visão 120º)
   let ghost = {
-    x: canvas.width * 0.75,
+    x: canvas.width * 0.88,
     y: canvas.height * 0.5,
-    speed: 1.8,
-    targetX: canvas.width * 0.25,
+    speed: 1.5,
+    targetX: canvas.width * 0.5,
     targetY: canvas.height * 0.5,
-    angle: 0,
+    angle: Math.PI,
     patrolCooldown: 0,
+    radius: 7,
   };
 
-  // Controle de Mouse Interativo
-  canvas.addEventListener("mouseenter", () => { isMouseOverCanvas = true; });
-  canvas.addEventListener("mouseleave", () => { isMouseOverCanvas = false; });
-  canvas.addEventListener("mousemove", (e) => {
-    const rect = canvas.getBoundingClientRect();
-    mouseTarget.x = e.clientX - rect.left;
-    mouseTarget.y = e.clientY - rect.top;
-  });
+  function resetPositions() {
+    player.x = canvas.width * 0.12;
+    player.y = canvas.height * 0.5;
+    player.currentWaypointIdx = 0;
+    ghost.x = canvas.width * 0.88;
+    ghost.y = canvas.height * 0.5;
+    ghost.angle = Math.PI;
+    ghost.speed = 1.5;
+    currentAiState = AI_STATE.PATROL;
+    lastKnownPos = null;
+    searchTimer = 0;
+  }
 
+  // Interseção de Segmento e Retângulo para Oclusão de Visão (Raycast)
+  function lineIntersectsLine(p1x, p1y, p2x, p2y, p3x, p3y, p4x, p4y) {
+    const denom = (p4y - p3y) * (p2x - p1x) - (p4x - p3x) * (p2y - p1y);
+    if (Math.abs(denom) < 0.0001) return false;
+    const ua = ((p4x - p3x) * (p1y - p3y) - (p4y - p3y) * (p1x - p3x)) / denom;
+    const ub = ((p2x - p1x) * (p1y - p3y) - (p2y - p1y) * (p1x - p3x)) / denom;
+    return ua >= 0 && ua <= 1 && ub >= 0 && ub <= 1;
+  }
+
+  function lineIntersectsRect(x1, y1, x2, y2, rx, ry, rw, rh) {
+    if (x1 >= rx && x1 <= rx + rw && y1 >= ry && y1 <= ry + rh) return true;
+    if (x2 >= rx && x2 <= rx + rw && y2 >= ry && y2 <= ry + rh) return true;
+    return (
+      lineIntersectsLine(x1, y1, x2, y2, rx, ry, rx + rw, ry) ||
+      lineIntersectsLine(x1, y1, x2, y2, rx + rw, ry, rx + rw, ry + rh) ||
+      lineIntersectsLine(x1, y1, x2, y2, rx, ry + rh, rx + rw, ry + rh) ||
+      lineIntersectsLine(x1, y1, x2, y2, rx, ry, rx, ry + rh)
+    );
+  }
+
+  function hasLineOfSight(x1, y1, x2, y2) {
+    for (let i = 0; i < obstacles.length; i++) {
+      const o = obstacles[i];
+      if (lineIntersectsRect(x1, y1, x2, y2, o.x, o.y, o.w, o.h)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  function resolveEntityCollision(entity, radius) {
+    const w = canvas.width;
+    const h = canvas.height;
+    if (entity.x < radius + 4) entity.x = radius + 4;
+    if (entity.x > w - radius - 4) entity.x = w - radius - 4;
+    if (entity.y < radius + 4) entity.y = radius + 4;
+    if (entity.y > h - radius - 4) entity.y = h - radius - 4;
+
+    for (let i = 0; i < obstacles.length; i++) {
+      const o = obstacles[i];
+      const nearestX = Math.max(o.x, Math.min(entity.x, o.x + o.w));
+      const nearestY = Math.max(o.y, Math.min(entity.y, o.y + o.h));
+      const dx = entity.x - nearestX;
+      const dy = entity.y - nearestY;
+      const distSq = dx * dx + dy * dy;
+      if (distSq < radius * radius) {
+        const dist = Math.sqrt(distSq) || 1;
+        const overlap = radius - dist;
+        entity.x += (dx / dist) * overlap;
+        entity.y += (dy / dist) * overlap;
+      }
+    }
+  }
+
+  // Alternador de Modo da IA (Heatmap 3D vs Patrulha Cega)
   if (modeBtn) {
     modeBtn.addEventListener("click", () => {
       isProbabilisticMode = !isProbabilisticMode;
       if (isProbabilisticMode) {
         modeBtn.classList.add("active");
         modeBtn.textContent = "Modo: Heatmap 3D";
-        if (modeStatus) {
-          modeStatus.textContent = "IA NAVMESH: HEATMAP 3D";
-          modeStatus.style.color = "var(--gold)";
-        }
       } else {
         modeBtn.classList.remove("active");
         modeBtn.textContent = "Modo: Patrulha Cega";
-        if (modeStatus) {
-          modeStatus.textContent = "IA NAVMESH: PATRULHA CEGA";
-          modeStatus.style.color = "var(--muted)";
-        }
       }
     });
   }
@@ -315,15 +421,23 @@ function initThariumHeatmapSimulation() {
     });
   }
 
+  if (respawnBtn) {
+    respawnBtn.addEventListener("click", () => {
+      resetPositions();
+    });
+  }
+
+  // Registro térmico no mapa de calor
   function recordPlayerPosition() {
     const col = Math.floor(player.x / GRID_SIZE);
     const row = Math.floor(player.y / GRID_SIZE);
     if (col >= 0 && col < cols && row >= 0 && row < rows) {
       const idx = row * cols + col;
-      heatmap[idx] = Math.min(255, heatmap[idx] + 12);
+      heatmap[idx] = Math.min(255, heatmap[idx] + 16);
     }
   }
 
+  // Resfriamento contínuo da pegada térmica
   setInterval(() => {
     for (let i = 0; i < heatmap.length; i++) {
       if (heatmap[i] > 0) heatmap[i] = Math.max(0, heatmap[i] - 1);
@@ -351,7 +465,7 @@ function initThariumHeatmapSimulation() {
     ctx.fillStyle = "#040810";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // 1. Grade de calor térmico (Interpolação Azul -> Vermelho)
+    // 1. Renderiza Grade Térmica (Heatmap Interpolação Azul -> Vermelho)
     cols = Math.floor(canvas.width / GRID_SIZE);
     rows = Math.floor(canvas.height / GRID_SIZE);
 
@@ -359,80 +473,278 @@ function initThariumHeatmapSimulation() {
       for (let c = 0; c < cols; c++) {
         const val = heatmap[r * cols + c] || 0;
         if (val > 0) {
-          const ratio = Math.min(1, val / 110);
+          const ratio = Math.min(1, val / 120);
           const red = Math.floor(ratio * 255);
-          const blue = Math.floor((1 - ratio) * 200);
+          const blue = Math.floor((1 - ratio) * 220);
           const green = Math.floor(Math.sin(ratio * Math.PI) * 110);
-          ctx.fillStyle = `rgba(${red}, ${green}, ${blue}, ${ratio * 0.55})`;
+          ctx.fillStyle = `rgba(${red}, ${green}, ${blue}, ${ratio * 0.50})`;
           ctx.fillRect(c * GRID_SIZE, r * GRID_SIZE, GRID_SIZE - 1, GRID_SIZE - 1);
         }
       }
     }
 
-    // 2. Movimenta Jogador (Seguindo cursor se interativo, ou orgânico)
-    if (isMouseOverCanvas) {
-      player.x += (mouseTarget.x - player.x) * 0.12;
-      player.y += (mouseTarget.y - player.y) * 0.12;
-    } else {
-      player.x += player.vx;
-      player.y += player.vy;
-      if (player.x <= 15 || player.x >= canvas.width - 15) player.vx *= -1;
-      if (player.y <= 15 || player.y >= canvas.height - 15) player.vy *= -1;
+    // 2. Renderiza Paredes do Labirinto (Obstáculos Oclusivos)
+    ctx.fillStyle = "#0D1826";
+    ctx.strokeStyle = "rgba(16, 185, 129, 0.28)";
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i < obstacles.length; i++) {
+      const o = obstacles[i];
+      ctx.fillRect(o.x, o.y, o.w, o.h);
+      ctx.strokeRect(o.x, o.y, o.w, o.h);
     }
+
+    // 3. Movimentação Autônoma do Jogador
+    if (waypoints.length > 0) {
+      const currentTarget = waypoints[player.currentWaypointIdx];
+      let dirX = currentTarget.x - player.x;
+      let dirY = currentTarget.y - player.y;
+      const distToTarget = Math.hypot(dirX, dirY);
+
+      if (distToTarget < 16) {
+        let nextIdx;
+        do {
+          nextIdx = Math.floor(Math.random() * waypoints.length);
+        } while (nextIdx === player.currentWaypointIdx && waypoints.length > 1);
+        player.currentWaypointIdx = nextIdx;
+      }
+
+      // Se a IA estiver em perseguição e próxima, o player tenta fugir na direção oposta
+      const distToGhost = Math.hypot(player.x - ghost.x, player.y - ghost.y);
+      let runSpeed = 1.4;
+      if (currentAiState === AI_STATE.CHASE && distToGhost < 140) {
+        runSpeed = 2.1;
+        const fleeX = player.x - ghost.x;
+        const fleeY = player.y - ghost.y;
+        const fleeLen = Math.hypot(fleeX, fleeY) || 1;
+        dirX = dirX * 0.4 + (fleeX / fleeLen) * distToTarget * 0.6;
+        dirY = dirY * 0.4 + (fleeY / fleeLen) * distToTarget * 0.6;
+      }
+
+      const moveLen = Math.hypot(dirX, dirY) || 1;
+      player.x += (dirX / moveLen) * runSpeed;
+      player.y += (dirY / moveLen) * runSpeed;
+    }
+    resolveEntityCollision(player, player.radius);
     recordPlayerPosition();
 
-    // Desenha Jogador (Esmeralda Tátil)
+    // 4. Checagem de Campo de Visão da IA (FOV 120º + Raycast Oclusivo)
+    const fovAngle = (120 * Math.PI) / 180; // 120 graus
+    const viewRadius = 115;
+    const dx = player.x - ghost.x;
+    const dy = player.y - ghost.y;
+    const distToPlayer = Math.hypot(dx, dy);
+
+    let playerInSight = false;
+    if (distToPlayer <= viewRadius) {
+      const angleToPlayer = Math.atan2(dy, dx);
+      let diffAngle = angleToPlayer - ghost.angle;
+      while (diffAngle < -Math.PI) diffAngle += 2 * Math.PI;
+      while (diffAngle > Math.PI) diffAngle -= 2 * Math.PI;
+
+      if (Math.abs(diffAngle) <= fovAngle / 2) {
+        if (hasLineOfSight(ghost.x, ghost.y, player.x, player.y)) {
+          playerInSight = true;
+        }
+      }
+    }
+
+    // 5. Máquina de Estados da IA Fantasma
+    if (playerInSight) {
+      // CONTATO VISUAL DIRETO: Perseguição Imediata
+      currentAiState = AI_STATE.CHASE;
+      lastKnownPos = { x: player.x, y: player.y };
+      ghost.targetX = player.x;
+      ghost.targetY = player.y;
+      ghost.speed = 2.4;
+    } else {
+      if (currentAiState === AI_STATE.CHASE) {
+        // Perdeu contato visual: Entra em investigação do ÚLTIMO PONTO VISTO
+        currentAiState = AI_STATE.INVESTIGATE;
+        if (lastKnownPos) {
+          ghost.targetX = lastKnownPos.x;
+          ghost.targetY = lastKnownPos.y;
+        }
+        ghost.speed = 2.0;
+      } else if (currentAiState === AI_STATE.INVESTIGATE) {
+        // Rumo ao último ponto visto
+        if (lastKnownPos) {
+          ghost.targetX = lastKnownPos.x;
+          ghost.targetY = lastKnownPos.y;
+          const distToLast = Math.hypot(ghost.x - lastKnownPos.x, ghost.y - lastKnownPos.y);
+          if (distToLast < 10) {
+            // Chegou no último ponto visto: inicia varredura angular
+            currentAiState = AI_STATE.SEARCHING;
+            searchTimer = 65;
+            searchBaseAngle = ghost.angle;
+          }
+        } else {
+          currentAiState = AI_STATE.PATROL;
+        }
+      } else if (currentAiState === AI_STATE.SEARCHING) {
+        // Varredura angular no ponto de alerta
+        searchTimer--;
+        ghost.angle = searchBaseAngle + Math.sin(searchTimer * 0.14) * 1.25;
+        if (searchTimer <= 0) {
+          currentAiState = AI_STATE.PATROL;
+          lastKnownPos = null;
+          ghost.patrolCooldown = 0;
+        }
+      } else {
+        // PATRULHA NORMAL (Heatmap ou Cega)
+        ghost.speed = 1.4;
+        ghost.patrolCooldown--;
+        if (ghost.patrolCooldown <= 0) {
+          if (isProbabilisticMode) {
+            const hotSpot = findHottestSpot();
+            if (hotSpot) {
+              ghost.targetX = hotSpot.x;
+              ghost.targetY = hotSpot.y;
+            } else if (waypoints.length > 0) {
+              const randWp = waypoints[Math.floor(Math.random() * waypoints.length)];
+              ghost.targetX = randWp.x;
+              ghost.targetY = randWp.y;
+            }
+          } else {
+            ghost.targetX = Math.random() * (canvas.width - 40) + 20;
+            ghost.targetY = Math.random() * (canvas.height - 40) + 20;
+          }
+          ghost.patrolCooldown = 50;
+        }
+      }
+    }
+
+    // 6. Atualização de Posição & Ângulo da IA Fantasma
+    if (currentAiState !== AI_STATE.SEARCHING) {
+      const gdx = ghost.targetX - ghost.x;
+      const gdy = ghost.targetY - ghost.y;
+      const gdist = Math.hypot(gdx, gdy);
+      if (gdist > 3) {
+        ghost.x += (gdx / gdist) * ghost.speed;
+        ghost.y += (gdist > 0 ? (gdy / gdist) : 0) * ghost.speed;
+        const targetAngle = Math.atan2(gdy, gdx);
+        let diff = targetAngle - ghost.angle;
+        while (diff < -Math.PI) diff += 2 * Math.PI;
+        while (diff > Math.PI) diff -= 2 * Math.PI;
+        ghost.angle += diff * 0.18;
+      }
+    }
+    resolveEntityCollision(ghost, ghost.radius);
+
+    // 7. Renderização do Marcador "ÚLTIMO PONTO VISTO"
+    if (lastKnownPos && (currentAiState === AI_STATE.INVESTIGATE || currentAiState === AI_STATE.SEARCHING)) {
+      alertPulse = (alertPulse + 0.08) % (Math.PI * 2);
+      const ringRadius = 10 + Math.sin(alertPulse) * 4;
+
+      // Linha tracejada indicando rumo da IA ao ponto
+      ctx.beginPath();
+      ctx.setLineDash([4, 4]);
+      ctx.moveTo(ghost.x, ghost.y);
+      ctx.lineTo(lastKnownPos.x, lastKnownPos.y);
+      ctx.strokeStyle = "rgba(249, 115, 22, 0.4)";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Círculo tático e mira
+      ctx.beginPath();
+      ctx.arc(lastKnownPos.x, lastKnownPos.y, ringRadius, 0, Math.PI * 2);
+      ctx.strokeStyle = "#F97316";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      ctx.fillStyle = "#F97316";
+      ctx.beginPath();
+      ctx.arc(lastKnownPos.x, lastKnownPos.y, 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Rótulo
+      ctx.font = "9px monospace";
+      ctx.fillStyle = "#F97316";
+      ctx.textAlign = "center";
+      ctx.fillText("ÚLTIMO PONTO VISTO", lastKnownPos.x, lastKnownPos.y - 14);
+      ctx.textAlign = "start";
+    }
+
+    // 8. Renderização do Cone de Visão (120º)
     ctx.beginPath();
-    ctx.arc(player.x, player.y, 6, 0, Math.PI * 2);
+    ctx.moveTo(ghost.x, ghost.y);
+    ctx.arc(ghost.x, ghost.y, viewRadius, ghost.angle - fovAngle / 2, ghost.angle + fovAngle / 2);
+    ctx.closePath();
+
+    if (currentAiState === AI_STATE.CHASE) {
+      ctx.fillStyle = "rgba(239, 68, 68, 0.32)";
+      ctx.strokeStyle = "#EF4444";
+    } else if (currentAiState === AI_STATE.INVESTIGATE || currentAiState === AI_STATE.SEARCHING) {
+      ctx.fillStyle = "rgba(249, 115, 22, 0.22)";
+      ctx.strokeStyle = "#F97316";
+    } else {
+      ctx.fillStyle = isProbabilisticMode ? "rgba(245, 158, 11, 0.14)" : "rgba(100, 116, 139, 0.12)";
+      ctx.strokeStyle = isProbabilisticMode ? "rgba(245, 158, 11, 0.45)" : "rgba(100, 116, 139, 0.35)";
+    }
+    ctx.lineWidth = 1.5;
+    ctx.fill();
+    ctx.stroke();
+
+    // 9. Renderização das Entidades
+    // Jogador (Esmeralda com Aura)
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
     ctx.fillStyle = "#10B981";
     ctx.fill();
 
-    // 3. IA Fantasma calculando interceptação
-    ghost.patrolCooldown--;
-    if (ghost.patrolCooldown <= 0) {
-      if (isProbabilisticMode) {
-        const hotSpot = findHottestSpot();
-        if (hotSpot) {
-          ghost.targetX = hotSpot.x;
-          ghost.targetY = hotSpot.y;
-        } else {
-          ghost.targetX = player.x;
-          ghost.targetY = player.y;
-        }
-      } else {
-        // Patrulha cega aleatória
-        ghost.targetX = Math.random() * (canvas.width - 40) + 20;
-        ghost.targetY = Math.random() * (canvas.height - 40) + 20;
-      }
-      ghost.patrolCooldown = 45;
+    if (currentAiState === AI_STATE.CHASE) {
+      // Pulso de pânico no jogador
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, player.radius + 5 + Math.sin(alertPulse * 2) * 2, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(239, 68, 68, 0.7)";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
     }
 
-    const dx = ghost.targetX - ghost.x;
-    const dy = ghost.targetY - ghost.y;
-    const dist = Math.hypot(dx, dy);
-    if (dist > 3) {
-      ghost.x += (dx / dist) * ghost.speed;
-      ghost.y += (dy / dist) * ghost.speed;
-      ghost.angle = Math.atan2(dy, dx);
+    // IA Fantasma
+    ctx.beginPath();
+    ctx.arc(ghost.x, ghost.y, ghost.radius, 0, Math.PI * 2);
+    if (currentAiState === AI_STATE.CHASE) {
+      ctx.fillStyle = "#EF4444";
+    } else if (currentAiState === AI_STATE.INVESTIGATE || currentAiState === AI_STATE.SEARCHING) {
+      ctx.fillStyle = "#F97316";
+    } else {
+      ctx.fillStyle = isProbabilisticMode ? "#F59E0B" : "#94A3B8";
     }
+    ctx.fill();
 
-    // Cone de Visão de 120º
-    const fov = (120 * Math.PI) / 180;
-    const viewRadius = 55;
+    // Vetor de Orientação da IA
     ctx.beginPath();
     ctx.moveTo(ghost.x, ghost.y);
-    ctx.arc(ghost.x, ghost.y, viewRadius, ghost.angle - fov / 2, ghost.angle + fov / 2);
-    ctx.closePath();
-    ctx.fillStyle = isProbabilisticMode ? "rgba(245, 158, 11, 0.12)" : "rgba(100, 116, 139, 0.12)";
-    ctx.fill();
-    ctx.strokeStyle = isProbabilisticMode ? "rgba(245, 158, 11, 0.35)" : "rgba(100, 116, 139, 0.35)";
+    ctx.lineTo(ghost.x + Math.cos(ghost.angle) * 12, ghost.y + Math.sin(ghost.angle) * 12);
+    ctx.strokeStyle = "#FFFFFF";
+    ctx.lineWidth = 2;
     ctx.stroke();
 
-    // Desenha IA Fantasma
-    ctx.beginPath();
-    ctx.arc(ghost.x, ghost.y, 7, 0, Math.PI * 2);
-    ctx.fillStyle = isProbabilisticMode ? "#EF4444" : "#94A3B8";
-    ctx.fill();
+    // 10. Atualização de Telemetria no DOM
+    if (modeStatus && aiStateEl) {
+      if (currentAiState === AI_STATE.CHASE) {
+        modeStatus.textContent = "ALERTA: CONTATO VISUAL!";
+        modeStatus.style.color = "#EF4444";
+        aiStateEl.textContent = "PERSEGUINDO PLAYER (VELOCIDADE MÁXIMA)";
+        aiStateEl.style.color = "#EF4444";
+      } else if (currentAiState === AI_STATE.INVESTIGATE) {
+        modeStatus.textContent = "INVESTIGANDO ÚLTIMO PONTO VISTO";
+        modeStatus.style.color = "#F97316";
+        aiStateEl.textContent = "CONTATO PERDIDO • INDO AO ÚLTIMO PONTO VISTO";
+        aiStateEl.style.color = "#F97316";
+      } else if (currentAiState === AI_STATE.SEARCHING) {
+        modeStatus.textContent = "VARRENDO ÁREA DO ALERTA";
+        modeStatus.style.color = "#F97316";
+        aiStateEl.textContent = "BUSCANDO REENGANAJAMENTO VISUAL";
+        aiStateEl.style.color = "#F97316";
+      } else {
+        modeStatus.textContent = isProbabilisticMode ? "PATRULHA TÉRMICA (HEATMAP 3D)" : "PATRULHA CEGA (RANDOM)";
+        modeStatus.style.color = isProbabilisticMode ? "var(--gold)" : "var(--muted)";
+        aiStateEl.textContent = isProbabilisticMode ? "RASTREAMENTO DINÂMICO VIA HEATMAP" : "MOVIMENTAÇÃO ALEATÓRIA";
+        aiStateEl.style.color = "var(--green-ink)";
+      }
+    }
 
     requestAnimationFrame(loop);
   }
