@@ -329,7 +329,7 @@ function initThariumHeatmapSimulation() {
     }
   }, 90);
 
-  // Extrai múltiplos centros de calor distintos para a IA transitar entre eles
+  // Extrai múltiplos centros de calor distintos para a IA transitar entre eles (focado nos 15 mais quentes)
   function getTopHotSpots() {
     let spots = [];
     for (let i = 0; i < heatmap.length; i++) {
@@ -345,10 +345,13 @@ function initThariumHeatmapSimulation() {
     }
     spots.sort((a, b) => b.val - a.val);
 
+    // Considera estritamente os 15 pontos mais quentes
+    const top15 = spots.slice(0, 15);
+
     // Filtra pontos espaçados em pelo menos 38px
     let distinct = [];
-    for (let i = 0; i < spots.length; i++) {
-      const s = spots[i];
+    for (let i = 0; i < top15.length; i++) {
+      const s = top15[i];
       if (distinct.every(d => Math.hypot(d.x - s.x, d.y - s.y) > 38)) {
         distinct.push(s);
         if (distinct.length >= 5) break;
@@ -361,21 +364,50 @@ function initThariumHeatmapSimulation() {
     ctx.fillStyle = "#040810";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // 1. Grade de Calor Térmico (Interpolação Azul -> Ciano -> Vermelho)
+    // 1. Grade de Calor Térmico (Exatamente no máximo 15 pontos mais vermelhos/quentes)
     cols = Math.floor(canvas.width / GRID_SIZE);
     rows = Math.floor(canvas.height / GRID_SIZE);
 
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const val = heatmap[r * cols + c] || 0;
-        if (val > 0) {
-          const ratio = Math.min(1, val / 120);
-          const red = Math.floor(ratio * 255);
-          const blue = Math.floor((1 - ratio) * 200);
-          const green = Math.floor(Math.sin(ratio * Math.PI) * 120);
-          ctx.fillStyle = `rgba(${red}, ${green}, ${blue}, ${ratio * 0.55})`;
-          ctx.fillRect(c * GRID_SIZE, r * GRID_SIZE, GRID_SIZE - 1, GRID_SIZE - 1);
-        }
+    let activeCells = [];
+    for (let i = 0; i < heatmap.length; i++) {
+      if (heatmap[i] > 0) {
+        activeCells.push({ idx: i, val: heatmap[i] });
+      }
+    }
+
+    // Ordena pelo maior valor de calor
+    activeCells.sort((a, b) => b.val - a.val);
+
+    // Mapeia rigorosamente os top 15 pontos mais quentes
+    const top15Map = new Map();
+    const topLimit = Math.min(15, activeCells.length);
+    for (let rank = 0; rank < topLimit; rank++) {
+      top15Map.set(activeCells[rank].idx, rank);
+    }
+
+    // Renderiza células ativas
+    for (let i = 0; i < activeCells.length; i++) {
+      const cell = activeCells[i];
+      const c = cell.idx % cols;
+      const r = Math.floor(cell.idx / cols);
+
+      if (top15Map.has(cell.idx)) {
+        // TOP 15: PONTOS MAIS VERMELHOS (Gradiente vibrante de calor carmesim/vermelho)
+        const rank = top15Map.get(cell.idx);
+        const heatNorm = 1 - rank / 15; // 1.0 (hottest) a 0.07 (15th)
+        const red = 235 + Math.floor(heatNorm * 20);
+        const green = Math.floor((1 - heatNorm) * 55);
+        const blue = Math.floor((1 - heatNorm) * 40);
+        const alpha = 0.45 + heatNorm * 0.40; // 0.45 a 0.85
+
+        ctx.fillStyle = `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+        ctx.fillRect(c * GRID_SIZE, r * GRID_SIZE, GRID_SIZE - 1, GRID_SIZE - 1);
+      } else {
+        // DEMAIS PONTOS: Rastros frios (Azul sutil, nunca vermelho)
+        const coldRatio = Math.min(1, cell.val / 100);
+        const alpha = coldRatio * 0.20;
+        ctx.fillStyle = `rgba(37, 99, 235, ${alpha})`;
+        ctx.fillRect(c * GRID_SIZE, r * GRID_SIZE, GRID_SIZE - 1, GRID_SIZE - 1);
       }
     }
 
