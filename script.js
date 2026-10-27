@@ -91,11 +91,13 @@ function initInteractiveTerminal() {
     ],
     status: () => [
       `<span style="color: var(--green-ink); font-weight: 800;">[SIDI :: OPERATOR STATUS]</span>`,
-      `Operador:       Guilherme Gustavo Weber`,
-      `Localização:    Indaiatuba - SP (Brasil)`,
-      `Instituição:    Centro Universitário Max Planck (UniMAX)`,
-      `Formação:       8º Semestre em Engenharia de Computação`,
-      `Conquista:      1º Lugar no TechDay 2025 com o projeto Tharium House`,
+      `Operador:        Guilherme Gustavo Weber`,
+      `Localização:     Indaiatuba - SP (Brasil)`,
+      `Graduação:       Ciência da Computação (7º/8º Semestre • Previsão 2027)`,
+      `Instituição:     Centro Universitário Max Planck (UniMAX) • PUCC • UNIJUÍ`,
+      `Conquista:       1º Lugar no TechDay 2025 com o projeto Tharium House`,
+      `LinkedIn:        https://linkedin.com/in/guilherme-gustavo-weber/`,
+      `GitHub:          https://github.com/GuilhermeGustavoWeber`,
       `Disponibilidade: Aberto a novos desafios de engenharia e arquitetura de software`,
     ],
     tharium: () => [
@@ -143,9 +145,11 @@ function initInteractiveTerminal() {
     },
     contact: () => [
       `<span style="color: var(--green-ink); font-weight: 800;">[CONTATO DIRETO]</span>`,
-      `E-mail:         guilherme7weber@gmail.com`,
-      `GitHub:         https://github.com/GuilhermeGustavoWeber`,
-      `Localização:    Indaiatuba - SP`,
+      `E-mail:          guilherme7weber@gmail.com`,
+      `LinkedIn:        https://linkedin.com/in/guilherme-gustavo-weber/`,
+      `GitHub:          https://github.com/GuilhermeGustavoWeber`,
+      `Currículo A4:    curriculo.html`,
+      `Localização:     Indaiatuba - SP`,
     ],
   };
 
