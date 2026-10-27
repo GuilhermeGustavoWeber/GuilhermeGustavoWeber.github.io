@@ -260,37 +260,15 @@ function initThariumHeatmapSimulation() {
   resizeCanvas();
   window.addEventListener("resize", resizeCanvas);
 
-  // Zonas Arquiteturais do Casarão (Cômodos e Corredores do Tharium House)
-  const ZONES = [
-    { xRatio: 0.18, yRatio: 0.28 }, // Sala Noroeste (Biblioteca)
-    { xRatio: 0.50, yRatio: 0.25 }, // Corredor Norte
-    { xRatio: 0.82, yRatio: 0.28 }, // Sala Nordeste (Quarto Principal)
-    { xRatio: 0.50, yRatio: 0.52 }, // Hall Central
-    { xRatio: 0.18, yRatio: 0.74 }, // Sala Sudoeste (Cozinha)
-    { xRatio: 0.50, yRatio: 0.76 }, // Corredor Sul
-    { xRatio: 0.82, yRatio: 0.74 }, // Sala Sudeste (Porão / Depósito)
-  ];
-
-  let currentZoneIdx = 0;
-  let playerLinger = 25;
-
-  function getZoneCoord(idx) {
-    const z = ZONES[idx];
-    return {
-      x: z.xRatio * canvas.width + (Math.random() - 0.5) * 36,
-      y: z.yRatio * canvas.height + (Math.random() - 0.5) * 24,
-    };
-  }
-
-  // Jogador Simulado (Navega organicamente entre cômodos em 2D com velocidade ~1.95 px/frame)
+  // Jogador Simulado (Movimenta-se livremente batendo e ricocheteando nas 4 paredes)
   let player = {
     x: canvas.width * 0.25,
     y: canvas.height * 0.5,
-    vx: 1.2,
-    vy: 1.0,
+    vx: 1.5,
+    vy: 1.2,
     speed: 1.95,
+    bounceCooldown: 0,
   };
-  let playerTarget = getZoneCoord(0);
 
   // IA Fantasma (Velocidades: Patrulha 1.20, Rumo ao último ponto 1.40, Perseguição 1.60 - sempre < jogador 1.95)
   let ghost = {
@@ -416,70 +394,93 @@ function initThariumHeatmapSimulation() {
       ghost.chaseCooldown--;
     }
 
-    // 2. Movimentação do Jogador em 2D (Exploração de Cômodos e Evasão Inteligente)
+    // 2. Movimentação do Jogador com Colisão e Ricochete nas 4 Paredes (Bater nas Paredes)
     const distToGhost = Math.hypot(player.x - ghost.x, player.y - ghost.y);
     const isUnderThreat = ghost.state === "CHASE" || (distToGhost < 85 && ghost.chaseCooldown <= 0);
 
-    if (isUnderThreat) {
-      // EVASÃO TÁTICA: Foge para o cômodo/zona do mapa mais distante da IA
-      let bestDist = -1;
-      let bestIdx = currentZoneIdx;
-      for (let i = 0; i < ZONES.length; i++) {
-        const zx = ZONES[i].xRatio * canvas.width;
-        const zy = ZONES[i].yRatio * canvas.height;
-        const dGhost = Math.hypot(zx - ghost.x, zy - ghost.y);
-        if (dGhost > bestDist) {
-          bestDist = dGhost;
-          bestIdx = i;
-        }
-      }
-      currentZoneIdx = bestIdx;
-      playerTarget = {
-        x: ZONES[bestIdx].xRatio * canvas.width,
-        y: ZONES[bestIdx].yRatio * canvas.height,
-      };
-      playerLinger = 0; // Fuga contínua sem parar
+    if (player.bounceCooldown > 0) {
+      player.bounceCooldown--;
     }
 
-    if (playerLinger > 0 && !isUnderThreat) {
-      // Jogador investiga a sala atual (desacelera e concentra calor térmico)
-      playerLinger--;
-      player.vx *= 0.85;
-      player.vy *= 0.85;
-    } else {
-      const pdx = playerTarget.x - player.x;
-      const pdy = playerTarget.y - player.y;
-      const pdist = Math.hypot(pdx, pdy);
+    if (isUnderThreat && player.bounceCooldown === 0) {
+      // Evasão ativa do fantasma
+      let escX = player.x - ghost.x;
+      let escY = player.y - ghost.y;
+      const escDist = Math.hypot(escX, escY) || 1;
+      escX /= escDist;
+      escY /= escDist;
 
-      if (pdist < 22 && !isUnderThreat) {
-        // Chegou na sala de destino: pausa para explorar e escolhe novo cômodo
-        playerLinger = Math.floor(Math.random() * 25) + 20; // 20-45 frames
-        let nextIdx;
-        do {
-          nextIdx = Math.floor(Math.random() * ZONES.length);
-        } while (nextIdx === currentZoneIdx);
-        currentZoneIdx = nextIdx;
-        playerTarget = getZoneCoord(nextIdx);
-      } else {
-        const desiredVx = (pdx / (pdist || 1)) * player.speed;
-        const desiredVy = (pdy / (pdist || 1)) * player.speed;
+      // Adiciona componente angular lateral para a curva não ser linear
+      const tangentX = -escY * 0.45;
+      const tangentY = escX * 0.45;
 
-        // Suaviza a curva de deslocamento em 2D
-        player.vx = player.vx * 0.88 + desiredVx * 0.12;
-        player.vy = player.vy * 0.88 + desiredVy * 0.12;
+      let fleeX = escX + tangentX;
+      let fleeY = escY + tangentY;
 
-        const curSpd = Math.hypot(player.vx, player.vy) || 1;
-        player.vx = (player.vx / curSpd) * player.speed;
-        player.vy = (player.vy / curSpd) * player.speed;
-      }
+      // Desvia suavemente das bordas se estiver muito colado durante a fuga
+      const wMargin = 30;
+      if (player.x < wMargin) fleeX += 1.0;
+      if (player.x > canvas.width - wMargin) fleeX -= 1.0;
+      if (player.y < wMargin) fleeY += 1.0;
+      if (player.y > canvas.height - wMargin) fleeY -= 1.0;
+
+      const fLen = Math.hypot(fleeX, fleeY) || 1;
+      player.vx = player.vx * 0.86 + (fleeX / fLen) * player.speed * 0.14;
+      player.vy = player.vy * 0.86 + (fleeY / fLen) * player.speed * 0.14;
+    } else if (player.bounceCooldown === 0) {
+      // Movimento livre exploratório: leve flutuação angular contínua para explorar cantos e bater nas paredes
+      const curAngle = Math.atan2(player.vy, player.vx);
+      const newAngle = curAngle + (Math.random() - 0.5) * 0.05;
+      player.vx = Math.cos(newAngle) * player.speed;
+      player.vy = Math.sin(newAngle) * player.speed;
     }
 
+    // Mantém velocidade constante
+    const curSpd = Math.hypot(player.vx, player.vy) || 1;
+    player.vx = (player.vx / curSpd) * player.speed;
+    player.vy = (player.vy / curSpd) * player.speed;
+
+    // Deslocamento físico
     player.x += player.vx;
     player.y += player.vy;
 
-    // Confinamento de segurança suave dentro do canvas
-    player.x = Math.max(18, Math.min(canvas.width - 18, player.x));
-    player.y = Math.max(18, Math.min(canvas.height - 18, player.y));
+    // COLISÃO FÍSICA E RICOCHETE NAS 4 PAREDES (Bater nas paredes)
+    const margin = 14;
+
+    // Parede Esquerda
+    if (player.x <= margin) {
+      player.x = margin;
+      player.vx = Math.abs(player.vx);
+      player.vy += (Math.random() - 0.5) * 0.9;
+      player.bounceCooldown = 15;
+    } 
+    // Parede Direita
+    else if (player.x >= canvas.width - margin) {
+      player.x = canvas.width - margin;
+      player.vx = -Math.abs(player.vx);
+      player.vy += (Math.random() - 0.5) * 0.9;
+      player.bounceCooldown = 15;
+    }
+
+    // Parede Superior (Teto)
+    if (player.y <= margin) {
+      player.y = margin;
+      player.vy = Math.abs(player.vy);
+      player.vx += (Math.random() - 0.5) * 0.9;
+      player.bounceCooldown = 15;
+    } 
+    // Parede Inferior (Chão)
+    else if (player.y >= canvas.height - margin) {
+      player.y = canvas.height - margin;
+      player.vy = -Math.abs(player.vy);
+      player.vx += (Math.random() - 0.5) * 0.9;
+      player.bounceCooldown = 15;
+    }
+
+    // Re-normaliza após o impacto
+    const postSpd = Math.hypot(player.vx, player.vy) || 1;
+    player.vx = (player.vx / postSpd) * player.speed;
+    player.vy = (player.vy / postSpd) * player.speed;
 
     recordPlayerPosition();
 
