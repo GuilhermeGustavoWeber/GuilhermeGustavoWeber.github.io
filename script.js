@@ -257,15 +257,15 @@ function initThariumHeatmapSimulation() {
   let rows = Math.floor(canvas.height / GRID_SIZE);
   let heatmap = new Array(cols * rows).fill(0);
 
-  // Jogador Simulado (Velocidade ~1.92 px/frame)
+  // Jogador Simulado (Velocidade ~1.95 px/frame)
   let player = {
     x: canvas.width * 0.25,
     y: canvas.height * 0.5,
     vx: 1.5,
-    vy: 1.2,
+    vy: 1.25,
   };
 
-  // IA Fantasma (Velocidades: Patrulha 1.25, Rumo ao último ponto 1.45, Perseguição 1.65 - sempre < jogador)
+  // IA Fantasma (Velocidades: Patrulha 1.20, Rumo ao último ponto 1.40, Perseguição 1.60 - sempre < jogador 1.95)
   let ghost = {
     x: canvas.width * 0.75,
     y: canvas.height * 0.5,
@@ -276,6 +276,8 @@ function initThariumHeatmapSimulation() {
     lastSeenPoint: null, // { x, y }
     currentPatrolSpot: null,
     patrolIndex: 0,
+    chaseTimer: 180, // Limite de perseguição contínua (~3 segundos a 60fps)
+    chaseCooldown: 0, // Período refratário após perseguição para obrigar patrulha
   };
 
   // Gravação contínua do rastro de calor do jogador
@@ -345,11 +347,52 @@ function initThariumHeatmapSimulation() {
       }
     }
 
-    // 2. Movimentação do Jogador em Trajeto Orgânico
+    // Decrementa cooldown de reativação de perseguição
+    if (ghost.chaseCooldown > 0) {
+      ghost.chaseCooldown--;
+    }
+
+    // 2. Movimentação do Jogador com Evasão Tática ao ser Perseguido
+    const distToGhost = Math.hypot(player.x - ghost.x, player.y - ghost.y);
+
+    if (ghost.state === "CHASE" || distToGhost < 80) {
+      // Vetor de fuga: afasta suavemente na direção oposta ao fantasma
+      const escX = player.x - ghost.x;
+      const escY = player.y - ghost.y;
+      const escDist = Math.hypot(escX, escY) || 1;
+      
+      player.vx = player.vx * 0.90 + (escX / escDist) * 1.95 * 0.10;
+      player.vy = player.vy * 0.90 + (escY / escDist) * 1.95 * 0.10;
+    }
+
+    // Normaliza velocidade do jogador para 1.95 px/frame
+    const currentSpeedP = Math.hypot(player.vx, player.vy) || 1;
+    player.vx = (player.vx / currentSpeedP) * 1.95;
+    player.vy = (player.vy / currentSpeedP) * 1.95;
+
     player.x += player.vx;
     player.y += player.vy;
-    if (player.x <= 15 || player.x >= canvas.width - 15) player.vx *= -1;
-    if (player.y <= 15 || player.y >= canvas.height - 15) player.vy *= -1;
+
+    // Rebate nas bordas com perturbação para evitar trajetos lineares repetitivos
+    if (player.x <= 16) {
+      player.x = 16;
+      player.vx = Math.abs(player.vx);
+      player.vy += (Math.random() - 0.5) * 0.4;
+    } else if (player.x >= canvas.width - 16) {
+      player.x = canvas.width - 16;
+      player.vx = -Math.abs(player.vx);
+      player.vy += (Math.random() - 0.5) * 0.4;
+    }
+    if (player.y <= 16) {
+      player.y = 16;
+      player.vy = Math.abs(player.vy);
+      player.vx += (Math.random() - 0.5) * 0.4;
+    } else if (player.y >= canvas.height - 16) {
+      player.y = canvas.height - 16;
+      player.vy = -Math.abs(player.vy);
+      player.vx += (Math.random() - 0.5) * 0.4;
+    }
+
     recordPlayerPosition();
 
     // Desenha Jogador (Ponto Esmeralda)
@@ -358,7 +401,7 @@ function initThariumHeatmapSimulation() {
     ctx.fillStyle = "#10B981";
     ctx.fill();
 
-    // 3. Verificação de Visão da IA (Cone de 120º e Raio de Visão)
+    // 3. Verificação de Visão da IA (Cone de 120º e Raio de Visão de 90px)
     const fov = (120 * Math.PI) / 180;
     const viewRadius = 90;
     const dx = player.x - ghost.x;
@@ -366,7 +409,8 @@ function initThariumHeatmapSimulation() {
     const distToPlayer = Math.hypot(dx, dy);
 
     let playerInView = false;
-    if (distToPlayer <= viewRadius) {
+    // Só engaja perseguição se o cooldown de patrulha tiver expirado
+    if (distToPlayer <= viewRadius && ghost.chaseCooldown <= 0) {
       const angleToPlayer = Math.atan2(dy, dx);
       let diffAngle = angleToPlayer - ghost.angle;
       while (diffAngle < -Math.PI) diffAngle += 2 * Math.PI;
@@ -377,20 +421,38 @@ function initThariumHeatmapSimulation() {
       }
     }
 
+    // Se o fantasma interceptar o jogador diretamente (colisão física < 12px), encerra perseguição
+    if (distToPlayer < 12) {
+      ghost.lastSeenPoint = null;
+      ghost.state = "PATROL";
+      ghost.chaseCooldown = 120;
+      ghost.chaseTimer = 180;
+      ghost.currentPatrolSpot = null;
+    }
+
     // 4. Máquina de Estados e Velocidade (IA calibrada para ser mais lenta que o jogador)
-    let currentSpeed = 1.25;
+    let currentSpeed = 1.20;
 
     if (playerInView) {
-      // VISÃO CONFIRMADA: Persegue o jogador diretamente
-      ghost.state = "CHASE";
-      currentSpeed = 1.65; // Mais lento que o jogador (1.92)
-      ghost.targetX = player.x;
-      ghost.targetY = player.y;
-      ghost.lastSeenPoint = { x: player.x, y: player.y };
+      ghost.chaseTimer--;
+      if (ghost.chaseTimer <= 0) {
+        // Fadiga de Perseguição: Desiste após ~3s e foca no último ponto visto
+        ghost.state = "PURSUING_LAST_SEEN";
+        ghost.lastSeenPoint = { x: player.x, y: player.y };
+        ghost.chaseCooldown = 120; // 2s de patrulha obrigatória
+        ghost.chaseTimer = 180;
+      } else {
+        // VISÃO CONFIRMADA: Persegue o jogador diretamente
+        ghost.state = "CHASE";
+        currentSpeed = 1.60; // Mais lento que o jogador (1.95)
+        ghost.targetX = player.x;
+        ghost.targetY = player.y;
+        ghost.lastSeenPoint = { x: player.x, y: player.y };
+      }
     } else if (ghost.lastSeenPoint !== null) {
       // PERDEU DE VISTA: Desloca até o último ponto onde conseguiu ver o jogador
       ghost.state = "PURSUING_LAST_SEEN";
-      currentSpeed = 1.45;
+      currentSpeed = 1.40;
       ghost.targetX = ghost.lastSeenPoint.x;
       ghost.targetY = ghost.lastSeenPoint.y;
 
@@ -400,11 +462,14 @@ function initThariumHeatmapSimulation() {
         ghost.lastSeenPoint = null;
         ghost.state = "PATROL";
         ghost.currentPatrolSpot = null;
+        ghost.chaseCooldown = 90; // 1.5s mínimo de patrulha térmica antes de nova visão
+        ghost.chaseTimer = 180;
       }
     } else {
       // PATRULHA NORMAL: Transita ciclicamente entre os pontos mais quentes
       ghost.state = "PATROL";
-      currentSpeed = 1.25;
+      currentSpeed = 1.20;
+      ghost.chaseTimer = 180;
 
       const hotSpots = getTopHotSpots();
       if (hotSpots.length > 0) {
