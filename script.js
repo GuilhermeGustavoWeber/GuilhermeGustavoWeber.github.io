@@ -232,10 +232,14 @@ function initInteractiveTerminal() {
 
 /* ==========================================================================
    4. SIMULADOR DO THARIUM HOUSE (CANVAS 2D)
+      - Transição contínua entre os pontos mais quentes (Heatmap)
+      - Detecção no FOV 120º e perseguição até o último ponto visto
+      - Velocidade da IA calibrada inferior à do jogador (IA não é mais rápida)
    ========================================================================== */
 
 function initThariumHeatmapSimulation() {
   const canvas = document.getElementById("tharium-heatmap-canvas");
+  const statusBadge = document.getElementById("tharium-status-badge");
   if (!canvas) return;
 
   const ctx = canvas.getContext("2d");
@@ -253,7 +257,7 @@ function initThariumHeatmapSimulation() {
   let rows = Math.floor(canvas.height / GRID_SIZE);
   let heatmap = new Array(cols * rows).fill(0);
 
-  // Jogador Simulado
+  // Jogador Simulado (Velocidade ~1.92 px/frame)
   let player = {
     x: canvas.width * 0.25,
     y: canvas.height * 0.5,
@@ -261,57 +265,69 @@ function initThariumHeatmapSimulation() {
     vy: 1.2,
   };
 
-  // IA Fantasma (NavMesh Simulado)
+  // IA Fantasma (Velocidades: Patrulha 1.25, Rumo ao último ponto 1.45, Perseguição 1.65 - sempre < jogador)
   let ghost = {
     x: canvas.width * 0.75,
     y: canvas.height * 0.5,
-    speed: 1.8,
     targetX: canvas.width * 0.25,
     targetY: canvas.height * 0.5,
-    angle: 0,
-    patrolCooldown: 0,
+    angle: Math.PI,
+    state: "PATROL", // "PATROL", "CHASE", "PURSUING_LAST_SEEN"
+    lastSeenPoint: null, // { x, y }
+    currentPatrolSpot: null,
+    patrolIndex: 0,
   };
 
-  // Atualiza mapa de calor com base na posicao do jogador
+  // Gravação contínua do rastro de calor do jogador
   function recordPlayerPosition() {
     const col = Math.floor(player.x / GRID_SIZE);
     const row = Math.floor(player.y / GRID_SIZE);
     if (col >= 0 && col < cols && row >= 0 && row < rows) {
       const idx = row * cols + col;
-      heatmap[idx] = Math.min(255, heatmap[idx] + 8);
+      heatmap[idx] = Math.min(255, heatmap[idx] + 10);
     }
   }
 
-  // Decaimento natural do calor da grade
+  // Resfriamento contínuo da grade térmica
   setInterval(() => {
     for (let i = 0; i < heatmap.length; i++) {
       if (heatmap[i] > 0) heatmap[i] = Math.max(0, heatmap[i] - 1);
     }
   }, 100);
 
-  // Encontra os pontos mais quentes para guiar a patrulha da IA
-  function findHottestSpot() {
-    let maxVal = 0;
-    let bestIdx = -1;
+  // Extrai múltiplos centros de calor distintos para a IA transitar entre eles
+  function getTopHotSpots() {
+    let spots = [];
     for (let i = 0; i < heatmap.length; i++) {
-      if (heatmap[i] > maxVal) {
-        maxVal = heatmap[i];
-        bestIdx = i;
+      if (heatmap[i] > 18) {
+        const col = i % cols;
+        const row = Math.floor(i / cols);
+        spots.push({
+          x: col * GRID_SIZE + GRID_SIZE / 2,
+          y: row * GRID_SIZE + GRID_SIZE / 2,
+          val: heatmap[i],
+        });
       }
     }
-    if (bestIdx !== -1 && maxVal > 15) {
-      const col = bestIdx % cols;
-      const row = Math.floor(bestIdx / cols);
-      return { x: col * GRID_SIZE + GRID_SIZE / 2, y: row * GRID_SIZE + GRID_SIZE / 2 };
+    spots.sort((a, b) => b.val - a.val);
+
+    // Filtra pontos espaçados em pelo menos 38px
+    let distinct = [];
+    for (let i = 0; i < spots.length; i++) {
+      const s = spots[i];
+      if (distinct.every(d => Math.hypot(d.x - s.x, d.y - s.y) > 38)) {
+        distinct.push(s);
+        if (distinct.length >= 5) break;
+      }
     }
-    return null;
+    return distinct;
   }
 
   function loop() {
     ctx.fillStyle = "#040810";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // 1. Desenha a grade de calor térmico (Interpolação Azul -> Vermelho)
+    // 1. Grade de Calor Térmico (Interpolação Azul -> Ciano -> Vermelho)
     cols = Math.floor(canvas.width / GRID_SIZE);
     rows = Math.floor(canvas.height / GRID_SIZE);
 
@@ -329,59 +345,161 @@ function initThariumHeatmapSimulation() {
       }
     }
 
-    // 2. Movimenta Jogador em trajeto orgânico
+    // 2. Movimentação do Jogador em Trajeto Orgânico
     player.x += player.vx;
     player.y += player.vy;
     if (player.x <= 15 || player.x >= canvas.width - 15) player.vx *= -1;
     if (player.y <= 15 || player.y >= canvas.height - 15) player.vy *= -1;
     recordPlayerPosition();
 
-    // Desenha Jogador (Ponto Esmeralda Tátil)
+    // Desenha Jogador (Ponto Esmeralda)
     ctx.beginPath();
     ctx.arc(player.x, player.y, 6, 0, Math.PI * 2);
     ctx.fillStyle = "#10B981";
     ctx.fill();
 
-    // 3. IA Fantasma calculando interceptação por Heatmap
-    ghost.patrolCooldown--;
-    if (ghost.patrolCooldown <= 0) {
-      const hotSpot = findHottestSpot();
-      if (hotSpot) {
-        ghost.targetX = hotSpot.x;
-        ghost.targetY = hotSpot.y;
-      } else {
-        ghost.targetX = player.x;
-        ghost.targetY = player.y;
-      }
-      ghost.patrolCooldown = 40;
-    }
-
-    const dx = ghost.targetX - ghost.x;
-    const dy = ghost.targetY - ghost.y;
-    const dist = Math.hypot(dx, dy);
-    if (dist > 3) {
-      ghost.x += (dx / dist) * ghost.speed;
-      ghost.y += (dy / dist) * ghost.speed;
-      ghost.angle = Math.atan2(dy, dx);
-    }
-
-    // Desenha Cone de Visão de 120º (Raycast FOV)
+    // 3. Verificação de Visão da IA (Cone de 120º e Raio de Visão)
     const fov = (120 * Math.PI) / 180;
-    const viewRadius = 55;
+    const viewRadius = 85;
+    const dx = player.x - ghost.x;
+    const dy = player.y - ghost.y;
+    const distToPlayer = Math.hypot(dx, dy);
+
+    let playerInView = false;
+    if (distToPlayer <= viewRadius) {
+      const angleToPlayer = Math.atan2(dy, dx);
+      let diffAngle = angleToPlayer - ghost.angle;
+      while (diffAngle < -Math.PI) diffAngle += 2 * Math.PI;
+      while (diffAngle > Math.PI) diffAngle -= 2 * Math.PI;
+
+      if (Math.abs(diffAngle) <= fov / 2) {
+        playerInView = true;
+      }
+    }
+
+    // 4. Máquina de Estados e Velocidade (IA calibrada para ser mais lenta que o jogador)
+    let currentSpeed = 1.25;
+
+    if (playerInView) {
+      // VISÃO CONFIRMADA: Persegue o jogador diretamente
+      ghost.state = "CHASE";
+      currentSpeed = 1.65; // Mais lento que o jogador (1.92)
+      ghost.targetX = player.x;
+      ghost.targetY = player.y;
+      ghost.lastSeenPoint = { x: player.x, y: player.y };
+    } else if (ghost.lastSeenPoint !== null) {
+      // PERDEU DE VISTA: Desloca até o último ponto onde conseguiu ver o jogador
+      ghost.state = "PURSUING_LAST_SEEN";
+      currentSpeed = 1.45;
+      ghost.targetX = ghost.lastSeenPoint.x;
+      ghost.targetY = ghost.lastSeenPoint.y;
+
+      const distToLast = Math.hypot(ghost.lastSeenPoint.x - ghost.x, ghost.lastSeenPoint.y - ghost.y);
+      if (distToLast < 14) {
+        // Alcançou o último ponto visto: encerra perseguição e volta a transitar nos pontos quentes
+        ghost.lastSeenPoint = null;
+        ghost.state = "PATROL";
+        ghost.currentPatrolSpot = null;
+      }
+    } else {
+      // PATRULHA NORMAL: Transita ciclicamente entre os pontos mais quentes
+      ghost.state = "PATROL";
+      currentSpeed = 1.25;
+
+      const hotSpots = getTopHotSpots();
+      if (hotSpots.length > 0) {
+        if (!ghost.currentPatrolSpot || Math.hypot(ghost.currentPatrolSpot.x - ghost.x, ghost.currentPatrolSpot.y - ghost.y) < 22) {
+          ghost.patrolIndex = (ghost.patrolIndex + 1) % hotSpots.length;
+          ghost.currentPatrolSpot = hotSpots[ghost.patrolIndex];
+        }
+        ghost.targetX = ghost.currentPatrolSpot.x;
+        ghost.targetY = ghost.currentPatrolSpot.y;
+      } else {
+        if (Math.hypot(ghost.targetX - ghost.x, ghost.targetY - ghost.y) < 20) {
+          ghost.targetX = Math.random() * (canvas.width - 40) + 20;
+          ghost.targetY = Math.random() * (canvas.height - 40) + 20;
+        }
+      }
+    }
+
+    // 5. Atualização de Posição e Orientação do Fantasma
+    const tdx = ghost.targetX - ghost.x;
+    const tdy = ghost.targetY - ghost.y;
+    const tdist = Math.hypot(tdx, tdy);
+    if (tdist > 3) {
+      ghost.x += (tdx / tdist) * currentSpeed;
+      ghost.y += (tdy / tdist) * currentSpeed;
+
+      const targetAngle = Math.atan2(tdy, tdx);
+      let diff = targetAngle - ghost.angle;
+      while (diff < -Math.PI) diff += 2 * Math.PI;
+      while (diff > Math.PI) diff -= 2 * Math.PI;
+      ghost.angle += diff * 0.14;
+    }
+
+    // 6. Marcador do Último Ponto Visto
+    if (ghost.lastSeenPoint && ghost.state === "PURSUING_LAST_SEEN") {
+      ctx.beginPath();
+      ctx.setLineDash([3, 3]);
+      ctx.moveTo(ghost.x, ghost.y);
+      ctx.lineTo(ghost.lastSeenPoint.x, ghost.lastSeenPoint.y);
+      ctx.strokeStyle = "rgba(249, 115, 22, 0.45)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.beginPath();
+      ctx.arc(ghost.lastSeenPoint.x, ghost.lastSeenPoint.y, 5, 0, Math.PI * 2);
+      ctx.strokeStyle = "#F97316";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      ctx.font = "8px monospace";
+      ctx.fillStyle = "#F97316";
+      ctx.textAlign = "center";
+      ctx.fillText("ÚLTIMO PONTO", ghost.lastSeenPoint.x, ghost.lastSeenPoint.y - 7);
+      ctx.textAlign = "start";
+    }
+
+    // 7. Renderização do Cone de Visão de 120º
     ctx.beginPath();
     ctx.moveTo(ghost.x, ghost.y);
     ctx.arc(ghost.x, ghost.y, viewRadius, ghost.angle - fov / 2, ghost.angle + fov / 2);
     ctx.closePath();
-    ctx.fillStyle = "rgba(245, 158, 11, 0.12)";
+
+    if (ghost.state === "CHASE") {
+      ctx.fillStyle = "rgba(239, 68, 68, 0.28)";
+      ctx.strokeStyle = "#EF4444";
+    } else if (ghost.state === "PURSUING_LAST_SEEN") {
+      ctx.fillStyle = "rgba(249, 115, 22, 0.20)";
+      ctx.strokeStyle = "#F97316";
+    } else {
+      ctx.fillStyle = "rgba(245, 158, 11, 0.12)";
+      ctx.strokeStyle = "rgba(245, 158, 11, 0.35)";
+    }
+    ctx.lineWidth = 1.5;
     ctx.fill();
-    ctx.strokeStyle = "rgba(245, 158, 11, 0.35)";
     ctx.stroke();
 
-    // Desenha IA Fantasma
+    // 8. Renderização do Fantasma
     ctx.beginPath();
     ctx.arc(ghost.x, ghost.y, 7, 0, Math.PI * 2);
-    ctx.fillStyle = "#EF4444";
+    ctx.fillStyle = ghost.state === "CHASE" ? "#EF4444" : (ghost.state === "PURSUING_LAST_SEEN" ? "#F97316" : "#EF4444");
     ctx.fill();
+
+    // 9. Atualização de Telemetria no Cabeçalho
+    if (statusBadge) {
+      if (ghost.state === "CHASE") {
+        statusBadge.textContent = "ALERTA: CONTATO VISUAL (PERSEGUINDO)";
+        statusBadge.style.color = "#EF4444";
+      } else if (ghost.state === "PURSUING_LAST_SEEN") {
+        statusBadge.textContent = "VISÃO QUEBRADA: INDO AO ÚLTIMO PONTO VISTO";
+        statusBadge.style.color = "#F97316";
+      } else {
+        statusBadge.textContent = "IA NAVMESH: TRANSITANDO ENTRE PONTOS QUENTES";
+        statusBadge.style.color = "var(--gold)";
+      }
+    }
 
     requestAnimationFrame(loop);
   }
