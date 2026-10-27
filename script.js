@@ -231,14 +231,17 @@ function initInteractiveTerminal() {
 }
 
 /* ==========================================================================
-   4. SIMULADOR DO THARIUM HOUSE: IA ESPACIAL, FOV 120º COM OCLUSÃO & NAVMESH
+   4. SIMULADOR DO THARIUM HOUSE: DIGITAL TWIN DE ENGENHARIA (C# / UNITY 3D)
+      - GameManager.allPlayerPaths & PathRecorder (amostragem contínua)
+      - AINavMesh.cs (LINQ Top 5 Emboscada & Interpolação Térmica HeatmapViewer)
+      - Campo de Visão 120º com Raycasting Oclusivo (Physics.Linecast)
    ========================================================================== */
 
 function initThariumHeatmapSimulation() {
   const canvas = document.getElementById("tharium-heatmap-canvas");
   const modeBtn = document.getElementById("tharium-mode-btn");
+  const nextRoundBtn = document.getElementById("tharium-next-round-btn");
   const clearBtn = document.getElementById("tharium-clear-btn");
-  const respawnBtn = document.getElementById("tharium-respawn-btn");
   const modeStatus = document.getElementById("tharium-mode-status");
   const aiStateEl = document.getElementById("tharium-ai-state");
   if (!canvas) return;
@@ -248,118 +251,271 @@ function initThariumHeatmapSimulation() {
 
   function resizeCanvas() {
     canvas.width = canvas.parentElement.clientWidth - 24;
-    canvas.height = 190;
+    canvas.height = 220;
   }
   resizeCanvas();
   window.addEventListener("resize", () => {
     resizeCanvas();
-    updateMapGeometry();
+    updateFloorplan();
   });
 
   const GRID_SIZE = 16;
   let cols = Math.floor(canvas.width / GRID_SIZE);
   let rows = Math.floor(canvas.height / GRID_SIZE);
-  let heatmap = new Array(cols * rows).fill(0);
 
-  let isProbabilisticMode = true;
+  // --- MODELO DIGITAL DE DADOS (Espelhando GameManager.cs e AINavMesh.cs) ---
+  let roundNumber = 1;
+  let allPlayerPaths = []; // Coleção de caminhos gravados (GameManager.allPlayerPaths)
+  let currentRecordingPath = []; // PathRecorder.cs (pontos gravados na rodada atual)
+  let heatmapData = {}; // Dictionary<Vector3, int> heatmap
+  let maxHeatValue = 1;
+  let currentHeatmapPatrolRoute = []; // currentHeatmapPatrolRoute (Top 5 LINQ)
+  let patrolRouteIndex = 0; // patrolRouteIndex
+  let isProbabilisticMode = true; // probabilisticMode
 
-  // Estados da IA
-  const AI_STATE = {
-    PATROL: "PATROL",
-    CHASE: "CHASE",
-    INVESTIGATE: "INVESTIGATE",
-    SEARCHING: "SEARCHING",
-  };
-  let currentAiState = AI_STATE.PATROL;
-  let lastKnownPos = null; // { x, y }
-  let searchTimer = 0;
-  let searchBaseAngle = 0;
-  let alertPulse = 0;
+  let roundToast = "";
+  let roundToastTimer = 0;
 
-  // Geometria do Labirinto & NavMesh
+  // Paredes e Estrutura Arquitetônica da Mansão Tharium
   let obstacles = [];
+  let roomLabels = [];
   let navNodes = [];
   let navAdj = {};
 
-  function updateMapGeometry() {
+  function updateFloorplan() {
     const w = canvas.width;
     const h = canvas.height;
     cols = Math.floor(w / GRID_SIZE);
     rows = Math.floor(h / GRID_SIZE);
-    if (heatmap.length !== cols * rows) {
-      heatmap = new Array(cols * rows).fill(0);
-    }
 
-    // Paredes do labirinto com passagens largas e sem quinas bloqueantes
-    const wallW = 14;
+    const xLeft = Math.floor(w * 0.30);
+    const xRight = Math.floor(w * 0.70);
+    const yMid = Math.floor(h * 0.50);
+    const wallThick = 10;
+
+    // Paredes que definem os 5 cômodos da mansão com passagens amplas
     obstacles = [
-      // Parede 1 (Esquerda) com porta central de 56px
-      { x: w * 0.33, y: 0, w: wallW, h: 66 },
-      { x: w * 0.33, y: 124, w: wallW, h: h - 124 },
-      // Parede 2 (Direita) com portas no topo (48px) e na base (48px)
-      { x: w * 0.66, y: 48, w: wallW, h: 94 },
+      // Parede Oeste (Divisória entre Quartos e Salão Central)
+      { x: xLeft, y: 0, w: wallThick, h: 36, name: "w_w_top" },
+      { x: xLeft, y: 82, w: wallThick, h: h - 164, name: "w_w_mid" },
+      { x: xLeft, y: h - 36, w: wallThick, h: 36, name: "w_w_bot" },
+
+      // Parede Interna Esquerda (Divisão START / BEDROOM)
+      { x: 0, y: yMid - 5, w: 75, h: wallThick, name: "w_start_l" },
+      { x: xLeft - 75, y: yMid - 5, w: 75, h: wallThick, name: "w_start_r" },
+
+      // Mesa Central de Jantar no Salão (Obstáculo central)
+      { x: Math.floor(w * 0.44), y: Math.floor(h * 0.36), w: Math.floor(w * 0.12), h: Math.floor(h * 0.28), name: "dining_table" },
+
+      // Parede Leste (Divisória entre Salão Central e Cozinha/Extração)
+      { x: xRight, y: 0, w: wallThick, h: 36, name: "w_e_top" },
+      { x: xRight, y: 82, w: wallThick, h: h - 164, name: "w_e_mid" },
+      { x: xRight, y: h - 36, w: wallThick, h: 36, name: "w_e_bot" },
+
+      // Parede Interna Direita (Divisão KITCHEN / FINISH)
+      { x: xRight, y: yMid - 5, w: 75, h: wallThick, name: "w_kit_l" },
+      { x: w - 75, y: yMid - 5, w: 75, h: wallThick, name: "w_kit_r" },
     ];
 
-    // Grafo de Navegação (NavMesh com rotas 100% desobstruídas)
+    // Rótulos Arquitetônicos da Planta Baixa
+    roomLabels = [
+      { text: "START [SPAWN]", x: xLeft * 0.5, y: 22 },
+      { text: "BEDROOM", x: xLeft * 0.5, y: h - 14 },
+      { text: "DINING HALL [SALÃO]", x: w * 0.5, y: 22 },
+      { text: "KITCHEN [COZINHA]", x: xRight + (w - xRight) * 0.5, y: 22 },
+      { text: "FINISH [EXTRAÇÃO]", x: xRight + (w - xRight) * 0.5, y: h - 14 },
+    ];
+
+    // Malha Topológica de Navegação (NavMesh 100% desobstruído)
     navNodes = [
-      { x: w * 0.15, y: 42 },   // 0: Sala Esquerda Topo
-      { x: w * 0.15, y: 148 },  // 1: Sala Esquerda Base
-      { x: w * 0.33 + 7, y: 95 }, // 2: Porta A (Centro)
-      { x: w * 0.50, y: 95 },   // 3: Sala Central
-      { x: w * 0.66 + 7, y: 24 }, // 4: Porta B Topo
-      { x: w * 0.66 + 7, y: 166 },// 5: Porta B Base
-      { x: w * 0.85, y: 42 },   // 6: Sala Direita Topo
-      { x: w * 0.85, y: 148 },  // 7: Sala Direita Base
+      { x: Math.floor(xLeft * 0.45), y: Math.floor(h * 0.25) }, // 0: START
+      { x: Math.floor(xLeft * 0.45), y: yMid },                  // 1: Porta Oeste Interna
+      { x: Math.floor(xLeft * 0.45), y: Math.floor(h * 0.75) }, // 2: BEDROOM
+      { x: xLeft + 6, y: 58 },                                  // 3: Porta Oeste Norte
+      { x: xLeft + 6, y: h - 58 },                              // 4: Porta Oeste Sul
+      { x: Math.floor(w * 0.50), y: 38 },                       // 5: Salão Norte
+      { x: Math.floor(w * 0.50), y: h - 38 },                   // 6: Salão Sul
+      { x: Math.floor(w * 0.38), y: yMid },                     // 7: Salão Oeste da Mesa
+      { x: Math.floor(w * 0.62), y: yMid },                     // 8: Salão Leste da Mesa
+      { x: xRight + 6, y: 58 },                                 // 9: Porta Leste Norte
+      { x: xRight + 6, y: h - 58 },                             // 10: Porta Leste Sul
+      { x: Math.floor(xRight + (w - xRight) * 0.55), y: Math.floor(h * 0.25) }, // 11: KITCHEN
+      { x: Math.floor(xRight + (w - xRight) * 0.55), y: yMid },                  // 12: Porta Leste Interna
+      { x: Math.floor(xRight + (w - xRight) * 0.55), y: Math.floor(h * 0.75) }, // 13: FINISH
     ];
 
     navAdj = {
-      0: [1, 2],
+      0: [1, 3],
       1: [0, 2],
-      2: [0, 1, 3],
-      3: [2, 4, 5],
-      4: [3, 6],
-      5: [3, 7],
-      6: [4, 7],
-      7: [5, 6],
+      2: [1, 4],
+      3: [0, 5, 7],
+      4: [2, 6, 7],
+      5: [3, 7, 8, 9],
+      6: [4, 7, 8, 10],
+      7: [3, 4, 5, 6],
+      8: [5, 6, 9, 10],
+      9: [5, 8, 11],
+      10: [6, 8, 13],
+      11: [9, 12],
+      12: [11, 13],
+      13: [10, 12],
     };
   }
-  updateMapGeometry();
+  updateFloorplan();
 
-  // Entidades
+  // Estados e Entidades
   let player = {
-    x: canvas.width * 0.15,
-    y: 95,
-    speed: 1.4,
+    x: 0,
+    y: 0,
+    speed: 1.35,
     targetNodeIdx: 0,
     radius: 6,
+    alive: true,
   };
 
   let ghost = {
-    x: canvas.width * 0.85,
-    y: 95,
+    x: 0,
+    y: 0,
     speed: 1.5,
-    targetX: canvas.width * 0.5,
-    targetY: 95,
     angle: Math.PI,
-    patrolCooldown: 0,
+    targetX: 0,
+    targetY: 0,
     radius: 7,
+    playerVisible: false,
+    patrolCooldown: 0,
+    lastSeenPos: null,
   };
 
-  function resetPositions() {
+  // Cria caminho inicial pré-gravado para que a IA já inicie com dados térmicos
+  function seedInitialRun() {
     const w = canvas.width;
-    player.x = w * 0.15;
-    player.y = 95;
-    player.targetNodeIdx = 0;
-    ghost.x = w * 0.85;
-    ghost.y = 95;
-    ghost.angle = Math.PI;
-    ghost.speed = 1.5;
-    currentAiState = AI_STATE.PATROL;
-    lastKnownPos = null;
-    searchTimer = 0;
+    const h = canvas.height;
+    const initialRun = [
+      { x: w * 0.12, y: h * 0.25 },
+      { x: w * 0.20, y: h * 0.26 },
+      { x: w * 0.30, y: 58 },
+      { x: w * 0.40, y: 45 },
+      { x: w * 0.50, y: 40 },
+      { x: w * 0.60, y: 45 },
+      { x: w * 0.70, y: 58 },
+      { x: w * 0.82, y: h * 0.25 },
+      { x: w * 0.84, y: h * 0.50 },
+      { x: w * 0.85, y: h * 0.75 },
+    ];
+    allPlayerPaths.push(initialRun);
+    generateHeatmap();
+    generateNewHeatmapPatrolRoute();
   }
 
-  // Interseção de Raio com Segmento
+  function spawnPlayer() {
+    if (navNodes.length > 0) {
+      player.x = navNodes[0].x;
+      player.y = navNodes[0].y;
+      player.targetNodeIdx = 0;
+      player.alive = true;
+      currentRecordingPath = [{ x: player.x, y: player.y }];
+    }
+  }
+
+  function spawnGhost() {
+    if (navNodes.length > 0) {
+      ghost.x = navNodes[8].x; // Inicia no salão leste
+      ghost.y = navNodes[8].y;
+      ghost.angle = Math.PI;
+      ghost.playerVisible = false;
+      ghost.lastSeenPos = null;
+      followHeatmapPatrol();
+    }
+  }
+
+  // --- 1. GERAÇÃO DO MAPA DE CALOR (AINavMesh.cs GenerateHeatmap) ---
+  function generateHeatmap() {
+    heatmapData = {};
+    maxHeatValue = 1;
+
+    allPlayerPaths.forEach((path) => {
+      path.forEach((pt) => {
+        const col = Math.floor(pt.x / GRID_SIZE);
+        const row = Math.floor(pt.y / GRID_SIZE);
+        const key = `${col}_${row}`;
+        heatmapData[key] = (heatmapData[key] || 0) + 1;
+        if (heatmapData[key] > maxHeatValue) {
+          maxHeatValue = heatmapData[key];
+        }
+      });
+    });
+  }
+
+  // --- 2. GERAÇÃO DA ROTA DE PATRULHA TOP 5 (AINavMesh.cs GenerateNewHeatmapPatrolRoute) ---
+  function generateNewHeatmapPatrolRoute() {
+    const entries = Object.keys(heatmapData).map((k) => {
+      const [col, row] = k.split("_").map(Number);
+      return {
+        key: k,
+        x: col * GRID_SIZE + GRID_SIZE / 2,
+        y: row * GRID_SIZE + GRID_SIZE / 2,
+        val: heatmapData[k],
+      };
+    });
+
+    if (entries.length === 0) {
+      currentHeatmapPatrolRoute = [];
+      return;
+    }
+
+    // LINQ: OrderByDescending(val).Take(5).OrderBy(rand)
+    const top5 = entries.sort((a, b) => b.val - a.val).slice(0, 5);
+    // Embaralha para rota imprevisível
+    currentHeatmapPatrolRoute = top5.sort(() => Math.random() - 0.5);
+    patrolRouteIndex = 0;
+  }
+
+  // --- 3. SEGUIR A ROTA DO PLANO DE CALOR (AINavMesh.cs FollowHeatmapPatrol) ---
+  function followHeatmapPatrol() {
+    if (!isProbabilisticMode || currentHeatmapPatrolRoute.length === 0) {
+      // Fallback: Patrulha cega aleatória
+      if (navNodes.length > 0) {
+        const randNode = navNodes[Math.floor(Math.random() * navNodes.length)];
+        ghost.targetX = randNode.x;
+        ghost.targetY = randNode.y;
+      }
+      return;
+    }
+
+    if (patrolRouteIndex >= currentHeatmapPatrolRoute.length) {
+      generateNewHeatmapPatrolRoute();
+    }
+
+    if (currentHeatmapPatrolRoute.length > 0) {
+      const targetSpot = currentHeatmapPatrolRoute[patrolRouteIndex];
+      ghost.targetX = targetSpot.x;
+      ghost.targetY = targetSpot.y;
+    }
+  }
+
+  // --- 4. GRAVAÇÃO CONTÍNUA DE PONTOS (PathRecorder.cs InvokeRepeating) ---
+  setInterval(() => {
+    if (player.alive) {
+      currentRecordingPath.push({ x: player.x, y: player.y });
+    }
+  }, 400); // Intervalo contínuo de 0.4s
+
+  // --- 5. REINÍCIO E SALVAMENTO DE TRAJETÓRIA (GameEnding.cs SavePathAndRestart) ---
+  function savePathAndRestart(reason) {
+    if (currentRecordingPath.length > 2) {
+      allPlayerPaths.push([...currentRecordingPath]);
+      generateHeatmap();
+      generateNewHeatmapPatrolRoute();
+    }
+    roundNumber++;
+    roundToast = reason === "CAUGHT" ? "JOGADOR CAPTURADO! DADOS TÉRMICOS INTEGRADOS" : "FUGA CONCLUÍDA! NOVA ROTA ADICIONADA AO HEATMAP";
+    roundToastTimer = 160;
+
+    spawnPlayer();
+    spawnGhost();
+  }
+
+  // Interseção e Raycasting Oclusivo
   function rayIntersectSegment(rx, ry, dx, dy, p1x, p1y, p2x, p2y) {
     const sx = p2x - p1x;
     const sy = p2y - p1y;
@@ -367,34 +523,24 @@ function initThariumHeatmapSimulation() {
     if (Math.abs(denom) < 0.00001) return null;
     const t = ((p1x - rx) * sy - (p1y - ry) * sx) / denom;
     const u = ((p1x - rx) * dy - (p1y - ry) * dx) / denom;
-    if (t >= 0 && u >= 0 && u <= 1) {
-      return t;
-    }
+    if (t >= 0 && u >= 0 && u <= 1) return t;
     return null;
   }
 
-  // Raio atingindo obstáculo ou borda do canvas
   function getRayHit(rx, ry, dx, dy, maxDist) {
     const w = canvas.width;
     const h = canvas.height;
     let minDist = maxDist;
 
-    // Bordas do canvas
-    const bounds = [
-      [0, 0, w, 0],
-      [w, 0, w, h],
-      [w, h, 0, h],
-      [0, h, 0, 0],
-    ];
+    // Bordas
+    const bounds = [[0, 0, w, 0], [w, 0, w, h], [w, h, 0, h], [0, h, 0, 0]];
     for (let i = 0; i < bounds.length; i++) {
       const b = bounds[i];
       const t = rayIntersectSegment(rx, ry, dx, dy, b[0], b[1], b[2], b[3]);
-      if (t !== null && t < minDist) {
-        minDist = t;
-      }
+      if (t !== null && t < minDist) minDist = t;
     }
 
-    // Arestas de cada obstáculo
+    // Arestas de obstáculos
     for (let i = 0; i < obstacles.length; i++) {
       const o = obstacles[i];
       const edges = [
@@ -406,20 +552,13 @@ function initThariumHeatmapSimulation() {
       for (let j = 0; j < edges.length; j++) {
         const e = edges[j];
         const t = rayIntersectSegment(rx, ry, dx, dy, e[0], e[1], e[2], e[3]);
-        if (t !== null && t < minDist) {
-          minDist = t;
-        }
+        if (t !== null && t < minDist) minDist = t;
       }
     }
 
-    return {
-      x: rx + dx * minDist,
-      y: ry + dy * minDist,
-      dist: minDist,
-    };
+    return { x: rx + dx * minDist, y: ry + dy * minDist, dist: minDist };
   }
 
-  // Checagem rigorosa de Linha de Visão (Raycast 2D: paredes bloqueiam 100%)
   function hasLineOfSight(x1, y1, x2, y2) {
     const dx = x2 - x1;
     const dy = y2 - y1;
@@ -439,15 +578,12 @@ function initThariumHeatmapSimulation() {
       for (let j = 0; j < edges.length; j++) {
         const e = edges[j];
         const t = rayIntersectSegment(x1, y1, ndx, ndy, e[0], e[1], e[2], e[3]);
-        if (t !== null && t > 1.0 && t < dist - 2.0) {
-          return false;
-        }
+        if (t !== null && t > 1.5 && t < dist - 2.0) return false;
       }
     }
     return true;
   }
 
-  // Verificação de Colisão contra Obstáculos
   function checkCollision(px, py, radius) {
     const w = canvas.width;
     const h = canvas.height;
@@ -460,14 +596,11 @@ function initThariumHeatmapSimulation() {
       const closestY = Math.max(o.y, Math.min(py, o.y + o.h));
       const dx = px - closestX;
       const dy = py - closestY;
-      if (dx * dx + dy * dy < radius * radius) {
-        return true;
-      }
+      if (dx * dx + dy * dy < radius * radius) return true;
     }
     return false;
   }
 
-  // Movimentação com Deslize em Eixos (Wall-Sliding: impede que entidades travem nas quinas)
   function moveEntityWithSliding(entity, targetX, targetY, speed) {
     const dx = targetX - entity.x;
     const dy = targetY - entity.y;
@@ -478,20 +611,13 @@ function initThariumHeatmapSimulation() {
     const vx = (dx / dist) * step;
     const vy = (dy / dist) * step;
 
-    // Desloca em X; se colidir, desfaz para deslizar em Y
     entity.x += vx;
-    if (checkCollision(entity.x, entity.y, entity.radius)) {
-      entity.x -= vx;
-    }
+    if (checkCollision(entity.x, entity.y, entity.radius)) entity.x -= vx;
 
-    // Desloca em Y; se colidir, desfaz para deslizar em X
     entity.y += vy;
-    if (checkCollision(entity.x, entity.y, entity.radius)) {
-      entity.y -= vy;
-    }
+    if (checkCollision(entity.x, entity.y, entity.radius)) entity.y -= vy;
   }
 
-  // Algoritmo BFS para encontrar menor rota no NavMesh através de portas
   function findNavPath(startIdx, goalIdx) {
     if (startIdx === goalIdx) return [startIdx];
     const queue = [[startIdx]];
@@ -507,9 +633,7 @@ function initThariumHeatmapSimulation() {
         if (!visited.has(n)) {
           visited.add(n);
           const newPath = path.concat([n]);
-          if (n === goalIdx) {
-            return newPath;
-          }
+          if (n === goalIdx) return newPath;
           queue.push(newPath);
         }
       }
@@ -517,63 +641,43 @@ function initThariumHeatmapSimulation() {
     return [startIdx];
   }
 
-  // Ponto de pilotagem inteligente: se linha de visão direta estiver bloqueada, segue o NavMesh
   function getNavSteeringPoint(fromX, fromY, toX, toY) {
     if (hasLineOfSight(fromX, fromY, toX, toY)) {
       return { x: toX, y: toY };
     }
 
-    // Acha nó visível mais próximo da origem
-    let bestStart = null;
-    let minStartDist = Infinity;
+    let bestStart = 0;
+    let minSDist = Infinity;
     for (let i = 0; i < navNodes.length; i++) {
       const n = navNodes[i];
       if (hasLineOfSight(fromX, fromY, n.x, n.y)) {
         const d = Math.hypot(n.x - fromX, n.y - fromY);
-        if (d < minStartDist) {
-          minStartDist = d;
-          bestStart = i;
-        }
-      }
-    }
-    if (bestStart === null) {
-      bestStart = 0;
-      let minD = Infinity;
-      for (let i = 0; i < navNodes.length; i++) {
-        const d = Math.hypot(navNodes[i].x - fromX, navNodes[i].y - fromY);
-        if (d < minD) { minD = d; bestStart = i; }
+        if (d < minSDist) { minSDist = d; bestStart = i; }
       }
     }
 
-    // Acha nó visível mais próximo do destino
-    let bestGoal = null;
-    let minGoalDist = Infinity;
+    let bestGoal = 13;
+    let minGDist = Infinity;
     for (let i = 0; i < navNodes.length; i++) {
       const n = navNodes[i];
       if (hasLineOfSight(toX, toY, n.x, n.y)) {
         const d = Math.hypot(n.x - toX, n.y - toY);
-        if (d < minGoalDist) {
-          minGoalDist = d;
-          bestGoal = i;
-        }
-      }
-    }
-    if (bestGoal === null) {
-      bestGoal = 3;
-      let minD = Infinity;
-      for (let i = 0; i < navNodes.length; i++) {
-        const d = Math.hypot(navNodes[i].x - toX, navNodes[i].y - toY);
-        if (d < minD) { minD = d; bestGoal = i; }
+        if (d < minGDist) { minGDist = d; bestGoal = i; }
       }
     }
 
     const path = findNavPath(bestStart, bestGoal);
-    let nextNodeIdx = path[0];
-    if (Math.hypot(navNodes[nextNodeIdx].x - fromX, navNodes[nextNodeIdx].y - fromY) < 18 && path.length > 1) {
-      nextNodeIdx = path[1];
+    let nextIdx = path[0];
+    if (Math.hypot(navNodes[nextIdx].x - fromX, navNodes[nextIdx].y - fromY) < 18 && path.length > 1) {
+      nextIdx = path[1];
     }
-    return { x: navNodes[nextNodeIdx].x, y: navNodes[nextNodeIdx].y };
+    return { x: navNodes[nextIdx].x, y: navNodes[nextIdx].y };
   }
+
+  // Inicialização do Cenário
+  seedInitialRun();
+  spawnPlayer();
+  spawnGhost();
 
   // Controles
   if (modeBtn) {
@@ -586,276 +690,205 @@ function initThariumHeatmapSimulation() {
         modeBtn.classList.remove("active");
         modeBtn.textContent = "Modo: Patrulha Cega";
       }
+      followHeatmapPatrol();
+    });
+  }
+
+  if (nextRoundBtn) {
+    nextRoundBtn.addEventListener("click", () => {
+      savePathAndRestart("FORCED");
     });
   }
 
   if (clearBtn) {
     clearBtn.addEventListener("click", () => {
-      heatmap.fill(0);
+      allPlayerPaths = [];
+      roundNumber = 1;
+      seedInitialRun();
+      spawnPlayer();
+      spawnGhost();
     });
   }
 
-  if (respawnBtn) {
-    respawnBtn.addEventListener("click", () => {
-      resetPositions();
-    });
-  }
-
-  // Rastro térmico
-  function recordPlayerPosition() {
-    const col = Math.floor(player.x / GRID_SIZE);
-    const row = Math.floor(player.y / GRID_SIZE);
-    if (col >= 0 && col < cols && row >= 0 && row < rows) {
-      const idx = row * cols + col;
-      heatmap[idx] = Math.min(255, heatmap[idx] + 18);
-    }
-  }
-
-  setInterval(() => {
-    for (let i = 0; i < heatmap.length; i++) {
-      if (heatmap[i] > 0) heatmap[i] = Math.max(0, heatmap[i] - 1);
-    }
-  }, 100);
-
-  function findHottestSpot() {
-    let maxVal = 0;
-    let bestIdx = -1;
-    for (let i = 0; i < heatmap.length; i++) {
-      if (heatmap[i] > maxVal) {
-        maxVal = heatmap[i];
-        bestIdx = i;
-      }
-    }
-    if (bestIdx !== -1 && maxVal > 15) {
-      const col = bestIdx % cols;
-      const row = Math.floor(bestIdx / cols);
-      return { x: col * GRID_SIZE + GRID_SIZE / 2, y: row * GRID_SIZE + GRID_SIZE / 2 };
-    }
-    return null;
-  }
-
+  // LOOP PRINCIPAL
   function loop() {
     ctx.fillStyle = "#040810";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // 1. Grade Térmica
-    cols = Math.floor(canvas.width / GRID_SIZE);
-    rows = Math.floor(canvas.height / GRID_SIZE);
+    // 1. Renderiza o Mapa de Calor Discretizado (HeatmapViewer.cs Color.Lerp Azul -> Vermelho)
+    Object.keys(heatmapData).forEach((k) => {
+      const [col, row] = k.split("_").map(Number);
+      const val = heatmapData[k];
+      const heatRatio = Math.min(1.0, val / Math.max(1, maxHeatValue));
 
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const val = heatmap[r * cols + c] || 0;
-        if (val > 0) {
-          const ratio = Math.min(1, val / 120);
-          const red = Math.floor(ratio * 255);
-          const blue = Math.floor((1 - ratio) * 220);
-          const green = Math.floor(Math.sin(ratio * Math.PI) * 110);
-          ctx.fillStyle = `rgba(${red}, ${green}, ${blue}, ${ratio * 0.48})`;
-          ctx.fillRect(c * GRID_SIZE, r * GRID_SIZE, GRID_SIZE - 1, GRID_SIZE - 1);
-        }
+      // Interpolação idêntica ao Color.Lerp(Color.blue, Color.red, heatRatio)
+      const red = Math.floor(heatRatio * 255);
+      const blue = Math.floor((1.0 - heatRatio) * 220);
+      const green = Math.floor(Math.sin(heatRatio * Math.PI) * 120);
+
+      ctx.fillStyle = `rgba(${red}, ${green}, ${blue}, ${0.15 + heatRatio * 0.45})`;
+      ctx.fillRect(col * GRID_SIZE + 1, row * GRID_SIZE + 1, GRID_SIZE - 2, GRID_SIZE - 2);
+    });
+
+    // 2. Renderiza a Rota de Emboscada Top 5 Ativa (AINavMesh.cs currentHeatmapPatrolRoute)
+    if (isProbabilisticMode && currentHeatmapPatrolRoute.length > 0) {
+      ctx.beginPath();
+      ctx.setLineDash([3, 5]);
+      ctx.moveTo(currentHeatmapPatrolRoute[0].x, currentHeatmapPatrolRoute[0].y);
+      for (let i = 1; i < currentHeatmapPatrolRoute.length; i++) {
+        ctx.lineTo(currentHeatmapPatrolRoute[i].x, currentHeatmapPatrolRoute[i].y);
       }
+      ctx.strokeStyle = "rgba(245, 158, 11, 0.25)";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Beacons dos 5 Pontos Quentes
+      currentHeatmapPatrolRoute.forEach((spot, idx) => {
+        const isCurrentTarget = idx === patrolRouteIndex;
+        ctx.beginPath();
+        ctx.arc(spot.x, spot.y, isCurrentTarget ? 7 : 4.5, 0, Math.PI * 2);
+        ctx.fillStyle = isCurrentTarget ? "#F59E0B" : "rgba(245, 158, 11, 0.4)";
+        ctx.fill();
+
+        ctx.font = "8px monospace";
+        ctx.fillStyle = isCurrentTarget ? "#FFFFFF" : "rgba(255, 255, 255, 0.6)";
+        ctx.textAlign = "center";
+        ctx.fillText(`H${idx + 1}`, spot.x, spot.y - 7);
+      });
     }
 
-    // 2. Paredes do Labirinto (Obstáculos Oclusivos)
-    ctx.fillStyle = "#0D1826";
-    ctx.strokeStyle = "rgba(16, 185, 129, 0.35)";
+    // 3. Renderiza Rótulos e Arquitetura da Mansão
+    ctx.font = "9px monospace";
+    ctx.fillStyle = "rgba(148, 163, 184, 0.35)";
+    ctx.textAlign = "center";
+    roomLabels.forEach((r) => {
+      ctx.fillText(r.text, r.x, r.y);
+    });
+    ctx.textAlign = "start";
+
+    // Paredes Físicas
+    ctx.fillStyle = "#0B1622";
+    ctx.strokeStyle = "rgba(16, 185, 129, 0.30)";
     ctx.lineWidth = 1.5;
-    for (let i = 0; i < obstacles.length; i++) {
-      const o = obstacles[i];
+    obstacles.forEach((o) => {
       ctx.fillRect(o.x, o.y, o.w, o.h);
       ctx.strokeRect(o.x, o.y, o.w, o.h);
-    }
+    });
 
-    // 3. Movimentação Autônoma do Jogador (Navegando entre salas)
-    if (navNodes.length > 0) {
+    // 4. Lógica e Movimentação do Jogador
+    if (player.alive && navNodes.length > 0) {
       const targetNode = navNodes[player.targetNodeIdx];
       const distToNode = Math.hypot(targetNode.x - player.x, targetNode.y - player.y);
 
       if (distToNode < 16) {
-        const neighbors = navAdj[player.targetNodeIdx] || [0];
-        if (currentAiState === AI_STATE.CHASE) {
-          // Fuga inteligente: escolhe o vizinho que mais distancia da IA
-          let bestNeighbor = neighbors[0];
-          let maxD = -1;
-          for (let i = 0; i < neighbors.length; i++) {
-            const nb = neighbors[i];
-            const d = Math.hypot(navNodes[nb].x - ghost.x, navNodes[nb].y - ghost.y);
-            if (d > maxD) {
-              maxD = d;
-              bestNeighbor = nb;
-            }
-          }
-          player.targetNodeIdx = bestNeighbor;
+        if (player.targetNodeIdx === 13) {
+          // Chegou no FINISH! Sucesso de Fuga
+          savePathAndRestart("ESCAPED");
         } else {
-          // Ronda orgânica aleatória
-          player.targetNodeIdx = neighbors[Math.floor(Math.random() * neighbors.length)];
+          // Navegação de fuga em direção a saída (nó 13)
+          const pathToFinish = findNavPath(player.targetNodeIdx, 13);
+          if (pathToFinish.length > 1) {
+            player.targetNodeIdx = pathToFinish[1];
+          } else {
+            const neighbors = navAdj[player.targetNodeIdx] || [0];
+            player.targetNodeIdx = neighbors[Math.floor(Math.random() * neighbors.length)];
+          }
         }
       }
 
-      let pSpeed = 1.35;
-      if (currentAiState === AI_STATE.CHASE) {
-        pSpeed = 2.05; // Adrenalina de fuga
-      }
+      let pSpeed = ghost.playerVisible ? 2.1 : 1.35;
       moveEntityWithSliding(player, targetNode.x, targetNode.y, pSpeed);
-      recordPlayerPosition();
     }
 
-    // 4. Detecção de Visão da IA (FOV 120º + Raycast Oclusivo)
+    // 5. Visão da IA (AINavMesh.cs DetectPlayer - viewAngle = 120f, viewRadius = 115)
     const fovAngle = (120 * Math.PI) / 180;
     const viewRadius = 115;
     const dx = player.x - ghost.x;
     const dy = player.y - ghost.y;
     const distToPlayer = Math.hypot(dx, dy);
 
-    let playerInSight = false;
+    ghost.playerVisible = false;
     if (distToPlayer <= viewRadius) {
       const angleToPlayer = Math.atan2(dy, dx);
       let diffAngle = angleToPlayer - ghost.angle;
       while (diffAngle < -Math.PI) diffAngle += 2 * Math.PI;
       while (diffAngle > Math.PI) diffAngle -= 2 * Math.PI;
 
-      // Se o ângulo está no cone, verifica oclusão por raycast (parede bloqueia)
+      // Ângulo <= 60º e Linha de visão desobstruída (Physics.Linecast)
       if (Math.abs(diffAngle) <= fovAngle / 2) {
         if (hasLineOfSight(ghost.x, ghost.y, player.x, player.y)) {
-          playerInSight = true;
+          ghost.playerVisible = true;
+          ghost.lastSeenPos = { x: player.x, y: player.y };
         }
       }
     }
 
-    // 5. Máquina de Estados da IA Fantasma
-    if (playerInSight) {
-      currentAiState = AI_STATE.CHASE;
-      lastKnownPos = { x: player.x, y: player.y };
+    // Captura do jogador se o fantasma alcançá-lo
+    if (distToPlayer < 12 && player.alive) {
+      savePathAndRestart("CAUGHT");
+    }
+
+    // 6. Atualização de Destino da IA
+    if (ghost.playerVisible) {
+      // Prioridade 1: Perseguir jogador diretamente
       ghost.targetX = player.x;
       ghost.targetY = player.y;
       ghost.speed = 2.25;
+    } else if (ghost.lastSeenPos) {
+      // Persegue até o último ponto visto
+      ghost.targetX = ghost.lastSeenPos.x;
+      ghost.targetY = ghost.lastSeenPos.y;
+      ghost.speed = 1.95;
+      if (Math.hypot(ghost.x - ghost.lastSeenPos.x, ghost.y - ghost.lastSeenPos.y) < 14) {
+        ghost.lastSeenPos = null;
+        followHeatmapPatrol();
+      }
     } else {
-      if (currentAiState === AI_STATE.CHASE) {
-        // Perdeu de vista: transiciona para investigar o ÚLTIMO PONTO VISTO
-        currentAiState = AI_STATE.INVESTIGATE;
-        if (lastKnownPos) {
-          ghost.targetX = lastKnownPos.x;
-          ghost.targetY = lastKnownPos.y;
-        }
-        ghost.speed = 1.95;
-      } else if (currentAiState === AI_STATE.INVESTIGATE) {
-        if (lastKnownPos) {
-          ghost.targetX = lastKnownPos.x;
-          ghost.targetY = lastKnownPos.y;
-          const distToLast = Math.hypot(ghost.x - lastKnownPos.x, ghost.y - lastKnownPos.y);
-          if (distToLast < 14) {
-            // Chegou no último ponto visto: executa varredura angular
-            currentAiState = AI_STATE.SEARCHING;
-            searchTimer = 65;
-            searchBaseAngle = ghost.angle;
-          }
-        } else {
-          currentAiState = AI_STATE.PATROL;
-        }
-      } else if (currentAiState === AI_STATE.SEARCHING) {
-        searchTimer--;
-        ghost.angle = searchBaseAngle + Math.sin(searchTimer * 0.14) * 1.35;
-        if (searchTimer <= 0) {
-          currentAiState = AI_STATE.PATROL;
-          lastKnownPos = null;
-          ghost.patrolCooldown = 0;
-        }
-      } else {
-        // Patrulha via Heatmap ou Cega
-        ghost.speed = 1.45;
-        ghost.patrolCooldown--;
-        if (ghost.patrolCooldown <= 0) {
-          if (isProbabilisticMode) {
-            const hotSpot = findHottestSpot();
-            if (hotSpot) {
-              ghost.targetX = hotSpot.x;
-              ghost.targetY = hotSpot.y;
-            } else if (navNodes.length > 0) {
-              const randNode = navNodes[Math.floor(Math.random() * navNodes.length)];
-              ghost.targetX = randNode.x;
-              ghost.targetY = randNode.y;
-            }
-          } else {
-            const randNode = navNodes[Math.floor(Math.random() * navNodes.length)];
-            ghost.targetX = randNode.x;
-            ghost.targetY = randNode.y;
-          }
-          ghost.patrolCooldown = 55;
-        }
+      // Patrulha do mapa de calor (avança para próximo nó da rota)
+      ghost.speed = 1.45;
+      if (Math.hypot(ghost.x - ghost.targetX, ghost.y - ghost.targetY) < 16) {
+        patrolRouteIndex++;
+        followHeatmapPatrol();
       }
     }
 
-    // 6. Atualização de Movimentação da IA com NavMesh e Deslize
-    if (currentAiState !== AI_STATE.SEARCHING) {
-      const steerPt = getNavSteeringPoint(ghost.x, ghost.y, ghost.targetX, ghost.targetY);
-      const prevX = ghost.x;
-      const prevY = ghost.y;
-      moveEntityWithSliding(ghost, steerPt.x, steerPt.y, ghost.speed);
+    // Movimentação da IA com NavMesh e Wall-Sliding
+    const steerPt = getNavSteeringPoint(ghost.x, ghost.y, ghost.targetX, ghost.targetY);
+    const prevGx = ghost.x;
+    const prevGy = ghost.y;
+    moveEntityWithSliding(ghost, steerPt.x, steerPt.y, ghost.speed);
 
-      const movedX = ghost.x - prevX;
-      const movedY = ghost.y - prevY;
-      if (Math.hypot(movedX, movedY) > 0.2) {
-        const targetAngle = Math.atan2(movedY, movedX);
-        let diff = targetAngle - ghost.angle;
-        while (diff < -Math.PI) diff += 2 * Math.PI;
-        while (diff > Math.PI) diff -= 2 * Math.PI;
-        ghost.angle += diff * 0.2;
-      }
+    const gMovedX = ghost.x - prevGx;
+    const gMovedY = ghost.y - prevGy;
+    if (Math.hypot(gMovedX, gMovedY) > 0.2) {
+      const targetAngle = Math.atan2(gMovedY, gMovedX);
+      let diff = targetAngle - ghost.angle;
+      while (diff < -Math.PI) diff += 2 * Math.PI;
+      while (diff > Math.PI) diff -= 2 * Math.PI;
+      ghost.angle += diff * 0.2;
     }
 
-    // 7. Renderização do Marcador "ÚLTIMO PONTO VISTO"
-    if (lastKnownPos && (currentAiState === AI_STATE.INVESTIGATE || currentAiState === AI_STATE.SEARCHING)) {
-      alertPulse = (alertPulse + 0.08) % (Math.PI * 2);
-      const ringRadius = 9 + Math.sin(alertPulse) * 3.5;
-
-      ctx.beginPath();
-      ctx.setLineDash([4, 4]);
-      ctx.moveTo(ghost.x, ghost.y);
-      ctx.lineTo(lastKnownPos.x, lastKnownPos.y);
-      ctx.strokeStyle = "rgba(249, 115, 22, 0.4)";
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      ctx.beginPath();
-      ctx.arc(lastKnownPos.x, lastKnownPos.y, ringRadius, 0, Math.PI * 2);
-      ctx.strokeStyle = "#F97316";
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-
-      ctx.fillStyle = "#F97316";
-      ctx.beginPath();
-      ctx.arc(lastKnownPos.x, lastKnownPos.y, 3, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.font = "9px monospace";
-      ctx.fillStyle = "#F97316";
-      ctx.textAlign = "center";
-      ctx.fillText("ÚLTIMO PONTO VISTO", lastKnownPos.x, lastKnownPos.y - 13);
-      ctx.textAlign = "start";
-    }
-
-    // 8. Renderização do Cone de Visão com Raycasting Real (Bloqueado fisicamente pelas paredes)
+    // 7. Renderização do Cone de Visão com Raycasting Real (Bloqueado fisicamente pelas paredes)
     const numRays = 36;
     const startAngle = ghost.angle - fovAngle / 2;
     const angleStep = fovAngle / (numRays - 1);
 
     ctx.beginPath();
     ctx.moveTo(ghost.x, ghost.y);
-
     for (let i = 0; i < numRays; i++) {
-      const rayAngle = startAngle + i * angleStep;
-      const rdx = Math.cos(rayAngle);
-      const rdy = Math.sin(rayAngle);
+      const rAngle = startAngle + i * angleStep;
+      const rdx = Math.cos(rAngle);
+      const rdy = Math.sin(rAngle);
       const hit = getRayHit(ghost.x, ghost.y, rdx, rdy, viewRadius);
       ctx.lineTo(hit.x, hit.y);
     }
-
     ctx.closePath();
-    if (currentAiState === AI_STATE.CHASE) {
+
+    if (ghost.playerVisible) {
       ctx.fillStyle = "rgba(239, 68, 68, 0.35)";
       ctx.strokeStyle = "#EF4444";
-    } else if (currentAiState === AI_STATE.INVESTIGATE || currentAiState === AI_STATE.SEARCHING) {
+    } else if (ghost.lastSeenPos) {
       ctx.fillStyle = "rgba(249, 115, 22, 0.25)";
       ctx.strokeStyle = "#F97316";
     } else {
@@ -866,34 +899,20 @@ function initThariumHeatmapSimulation() {
     ctx.fill();
     ctx.stroke();
 
-    // 9. Renderização das Entidades
-    // Jogador (Esmeralda com Aura)
+    // 8. Renderização das Entidades
+    // Jogador (Esmeralda)
     ctx.beginPath();
     ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
     ctx.fillStyle = "#10B981";
     ctx.fill();
 
-    if (currentAiState === AI_STATE.CHASE) {
-      ctx.beginPath();
-      ctx.arc(player.x, player.y, player.radius + 5 + Math.sin(alertPulse * 2) * 2, 0, Math.PI * 2);
-      ctx.strokeStyle = "rgba(239, 68, 68, 0.7)";
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-    }
-
-    // IA Fantasma
+    // Fantasma IA
     ctx.beginPath();
     ctx.arc(ghost.x, ghost.y, ghost.radius, 0, Math.PI * 2);
-    if (currentAiState === AI_STATE.CHASE) {
-      ctx.fillStyle = "#EF4444";
-    } else if (currentAiState === AI_STATE.INVESTIGATE || currentAiState === AI_STATE.SEARCHING) {
-      ctx.fillStyle = "#F97316";
-    } else {
-      ctx.fillStyle = isProbabilisticMode ? "#F59E0B" : "#94A3B8";
-    }
+    ctx.fillStyle = ghost.playerVisible ? "#EF4444" : (isProbabilisticMode ? "#F59E0B" : "#94A3B8");
     ctx.fill();
 
-    // Vetor de Orientação da IA
+    // Vetor de Orientação do Fantasma
     ctx.beginPath();
     ctx.moveTo(ghost.x, ghost.y);
     ctx.lineTo(ghost.x + Math.cos(ghost.angle) * 12, ghost.y + Math.sin(ghost.angle) * 12);
@@ -901,28 +920,44 @@ function initThariumHeatmapSimulation() {
     ctx.lineWidth = 2;
     ctx.stroke();
 
+    // 9. Banner Toast de Fim de Rodada
+    if (roundToastTimer > 0) {
+      roundToastTimer--;
+      ctx.fillStyle = "rgba(11, 19, 32, 0.88)";
+      ctx.fillRect(canvas.width * 0.20, canvas.height * 0.42, canvas.width * 0.60, 34);
+      ctx.strokeStyle = "rgba(16, 185, 129, 0.5)";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(canvas.width * 0.20, canvas.height * 0.42, canvas.width * 0.60, 34);
+
+      ctx.font = "10px monospace";
+      ctx.fillStyle = "#34D399";
+      ctx.textAlign = "center";
+      ctx.fillText(roundToast, canvas.width * 0.5, canvas.height * 0.42 + 21);
+      ctx.textAlign = "start";
+    }
+
     // 10. Atualização de Telemetria no DOM
     if (modeStatus && aiStateEl) {
-      if (currentAiState === AI_STATE.CHASE) {
-        modeStatus.textContent = "ALERTA: CONTATO VISUAL!";
+      if (ghost.playerVisible) {
+        modeStatus.textContent = "ALERTA: CONTATO VISUAL (PERSEGUINDO)";
         modeStatus.style.color = "#EF4444";
-        aiStateEl.textContent = "PERSEGUINDO PLAYER (VELOCIDADE MÁXIMA)";
+        aiStateEl.textContent = "IA EM PERSEGUIÇÃO DIRETA AO JOGADOR";
         aiStateEl.style.color = "#EF4444";
-      } else if (currentAiState === AI_STATE.INVESTIGATE) {
+      } else if (ghost.lastSeenPos) {
         modeStatus.textContent = "INVESTIGANDO ÚLTIMO PONTO VISTO";
         modeStatus.style.color = "#F97316";
-        aiStateEl.textContent = "CONTATO PERDIDO • INDO AO ÚLTIMO PONTO VISTO";
+        aiStateEl.textContent = "VISÃO QUEBRADA • VERIFICANDO COORDENADA";
         aiStateEl.style.color = "#F97316";
-      } else if (currentAiState === AI_STATE.SEARCHING) {
-        modeStatus.textContent = "VARRENDO ÁREA DO ALERTA";
-        modeStatus.style.color = "#F97316";
-        aiStateEl.textContent = "BUSCANDO REENGANAJAMENTO VISUAL";
-        aiStateEl.style.color = "#F97316";
-      } else {
-        modeStatus.textContent = isProbabilisticMode ? "PATRULHA TÉRMICA (HEATMAP 3D)" : "PATRULHA CEGA (RANDOM)";
-        modeStatus.style.color = isProbabilisticMode ? "var(--gold)" : "var(--muted)";
-        aiStateEl.textContent = isProbabilisticMode ? "RASTREAMENTO DINÂMICO VIA HEATMAP" : "MOVIMENTAÇÃO ALEATÓRIA";
+      } else if (isProbabilisticMode) {
+        modeStatus.textContent = `EMBOSCADA TOP 5: NÓ ${patrolRouteIndex + 1}/${Math.max(1, currentHeatmapPatrolRoute.length)}`;
+        modeStatus.style.color = "var(--gold)";
+        aiStateEl.textContent = `RODADA #${roundNumber} • TRAJETOS GRAVADOS: ${allPlayerPaths.length}`;
         aiStateEl.style.color = "var(--green-ink)";
+      } else {
+        modeStatus.textContent = "PATRULHA CEGA (GHOSTRANDOM)";
+        modeStatus.style.color = "var(--muted)";
+        aiStateEl.textContent = "MODO PADRÃO SEM LEITURA TÉRMICA";
+        aiStateEl.style.color = "var(--muted)";
       }
     }
 

@@ -205,17 +205,17 @@
             <!-- Mini Simulador Interativo do Heatmap no Canvas -->
             <div class="heatmap-canvas-container">
               <div class="heatmap-canvas-header">
-                <span>SIMULAÇÃO AO VIVO: AGENTE FANTASMA & LABIRINTO STEALTH</span>
-                <span id="tharium-mode-status" style="color: var(--gold);">PATRULHA TÉRMICA (HEATMAP)</span>
+                <span>SIMULAÇÃO AO VIVO: THARIUM HOUSE • MOTOR C# / AINAVMESH</span>
+                <span id="tharium-mode-status" style="color: var(--gold);">MODO PROBABILÍSTICO: EMBOSCADA TOP 5</span>
               </div>
               <canvas id="tharium-heatmap-canvas"></canvas>
               <div class="canvas-controls-bar">
                 <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
                   <button id="tharium-mode-btn" class="canvas-btn active" title="Alternar entre modo probabilístico e patrulha cega">Modo: Heatmap 3D</button>
-                  <button id="tharium-clear-btn" class="canvas-btn" title="Limpar grade térmica">Limpar Calor</button>
-                  <button id="tharium-respawn-btn" class="canvas-btn" title="Reposicionar jogador e agente">Reposicionar Agentes</button>
+                  <button id="tharium-next-round-btn" class="canvas-btn" title="Simular conclusão de rodada e incorporar novo trajeto">Simular Nova Rodada</button>
+                  <button id="tharium-clear-btn" class="canvas-btn" title="Zerar trajetórias e reiniciar memória">Zerar Histórico</button>
                 </div>
-                <span id="tharium-ai-state" class="canvas-hint" style="color: var(--green-ink); font-weight: 600;">PATRULHANDO • NENHUM ALERTA</span>
+                <span id="tharium-ai-state" class="canvas-hint" style="color: var(--green-ink); font-weight: 600;">RODADA #1 • TOP 5 ALVOS ATIVOS</span>
               </div>
             </div>
 
