@@ -245,58 +245,216 @@ function initThariumHeatmapSimulation() {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
 
-  const GRID_SIZE = 16;
+  const CELL_SIZE = 20;
   let cols = 0;
   let rows = 0;
+  let maze = []; // 0 = corredor navegável, 1 = parede
   let heatmap = [];
+  let penaltyMap = new Map(); // Penalidades temporárias de rota quando o jogador é pego
+
+  let startCoord = { c: 2, r: 6 };
+  let exitCoord = { c: 28, r: 6 };
+
+  // Jogador Simulado (Navega via A* rumo à saída, mudando de rota se interceptado)
+  let player = {
+    c: 2,
+    r: 6,
+    x: 2 * CELL_SIZE + CELL_SIZE / 2,
+    y: 6 * CELL_SIZE + CELL_SIZE / 2,
+    angle: 0,
+    speed: 1.95,
+    path: [],
+    pathIndex: 0,
+    escapes: 0,
+  };
+
+  // IA Fantasma (Patrulha pontos quentes, persegue por FOV 120º sem atravessar paredes)
+  let ghost = {
+    c: 15,
+    r: 2,
+    x: 15 * CELL_SIZE + CELL_SIZE / 2,
+    y: 2 * CELL_SIZE + CELL_SIZE / 2,
+    angle: Math.PI,
+    speed: 1.20,
+    state: "PATROL", // "PATROL", "CHASE", "PURSUING_LAST_SEEN"
+    path: [],
+    pathIndex: 0,
+    lastSeenPoint: null,
+    chaseCooldown: 0,
+    chaseTimer: 180,
+  };
+
+  function isWalkable(c, r) {
+    if (c < 0 || c >= cols || r < 0 || r >= rows) return false;
+    return maze[r * cols + c] === 0;
+  }
+
+  // Gera a planta arquitetural do casarão (3 alas horizontais + 5 corredores cruzados)
+  function buildMansionMaze() {
+    cols = Math.floor(canvas.width / CELL_SIZE);
+    rows = Math.floor(canvas.height / CELL_SIZE); // 260 / 20 = 13 rows
+    maze = new Uint8Array(cols * rows);
+    heatmap = new Array(cols * rows).fill(0);
+    penaltyMap.clear();
+
+    // Inicia tudo como parede
+    for (let i = 0; i < cols * rows; i++) maze[i] = 1;
+
+    // 3 Alas Principais
+    const northRow = 2;
+    const centerRow = 6;
+    const southRow = 10;
+
+    for (let c = 1; c < cols - 1; c++) {
+      maze[northRow * cols + c] = 0;
+      maze[centerRow * cols + c] = 0;
+      maze[southRow * cols + c] = 0;
+    }
+
+    // 5 Cruzamentos de Passagem (Salões Conectores)
+    const westCol = 4;
+    const midWestCol = Math.floor(cols * 0.30);
+    const midCol = Math.floor(cols * 0.50);
+    const midEastCol = Math.floor(cols * 0.70);
+    const eastCol = Math.max(westCol + 4, cols - 5);
+
+    const connectors = [westCol, midWestCol, midCol, midEastCol, eastCol];
+    connectors.forEach(c => {
+      if (c > 1 && c < cols - 1) {
+        for (let r = northRow; r <= southRow; r++) {
+          maze[r * cols + c] = 0;
+        }
+      }
+    });
+
+    startCoord = { c: 2, r: centerRow };
+    exitCoord = { c: cols - 3, r: centerRow };
+
+    // Inicializa entidades nas posições válidas
+    player.c = startCoord.c;
+    player.r = startCoord.r;
+    player.x = startCoord.c * CELL_SIZE + CELL_SIZE / 2;
+    player.y = startCoord.r * CELL_SIZE + CELL_SIZE / 2;
+    player.path = findPathAStar(player.c, player.r, exitCoord.c, exitCoord.r, penaltyMap);
+    player.pathIndex = 0;
+
+    ghost.c = midCol;
+    ghost.r = northRow;
+    ghost.x = midCol * CELL_SIZE + CELL_SIZE / 2;
+    ghost.y = northRow * CELL_SIZE + CELL_SIZE / 2;
+    ghost.path = [];
+    ghost.pathIndex = 0;
+    ghost.state = "PATROL";
+  }
 
   function resizeCanvas() {
-    canvas.width = Math.max(300, (canvas.parentElement ? canvas.parentElement.clientWidth : 600) - 24);
+    canvas.width = Math.max(320, (canvas.parentElement ? canvas.parentElement.clientWidth : 600) - 24);
     canvas.height = 260;
-    cols = Math.floor(canvas.width / GRID_SIZE);
-    rows = Math.floor(canvas.height / GRID_SIZE);
-    heatmap = new Array(cols * rows).fill(0);
+    buildMansionMaze();
   }
   resizeCanvas();
   window.addEventListener("resize", resizeCanvas);
 
-  // Jogador Simulado (Movimenta-se livremente batendo e ricocheteando nas 4 paredes)
-  let player = {
-    x: canvas.width * 0.25,
-    y: canvas.height * 0.5,
-    vx: 1.5,
-    vy: 1.2,
-    speed: 1.95,
-    bounceCooldown: 0,
-  };
+  // Pathfinding A* (Respeita penalidades de caminhos bloqueados)
+  function findPathAStar(startC, startR, targetC, targetR, penalties) {
+    if (!isWalkable(startC, startR) || !isWalkable(targetC, targetR)) return [];
 
-  // IA Fantasma (Velocidades: Patrulha 1.20, Rumo ao último ponto 1.40, Perseguição 1.60 - sempre < jogador 1.95)
-  let ghost = {
-    x: canvas.width * 0.75,
-    y: canvas.height * 0.5,
-    targetX: canvas.width * 0.25,
-    targetY: canvas.height * 0.5,
-    angle: Math.PI,
-    state: "PATROL", // "PATROL", "CHASE", "PURSUING_LAST_SEEN"
-    lastSeenPoint: null, // { x, y }
-    currentPatrolSpot: null,
-    patrolIndex: 0,
-    chaseTimer: 180, // Limite de perseguição contínua (~3 segundos a 60fps)
-    chaseCooldown: 0, // Período refratário após perseguição para obrigar patrulha
-  };
+    const openSet = [];
+    const cameFrom = new Map();
+    const gScore = new Map();
+    const fScore = new Map();
 
-  // Gravação contínua do rastro de calor com difusão suave
+    const startKey = `${startC},${startR}`;
+    gScore.set(startKey, 0);
+    const hStart = Math.abs(startC - targetC) + Math.abs(startR - targetR);
+    fScore.set(startKey, hStart);
+    openSet.push({ c: startC, r: startR, f: hStart });
+
+    const visited = new Set();
+
+    while (openSet.length > 0) {
+      let bestIdx = 0;
+      for (let i = 1; i < openSet.length; i++) {
+        if (openSet[i].f < openSet[bestIdx].f) bestIdx = i;
+      }
+      const current = openSet.splice(bestIdx, 1)[0];
+      const curKey = `${current.c},${current.r}`;
+
+      if (current.c === targetC && current.r === targetR) {
+        const path = [];
+        let curr = current;
+        while (curr) {
+          path.unshift({
+            c: curr.c,
+            r: curr.r,
+            x: curr.c * CELL_SIZE + CELL_SIZE / 2,
+            y: curr.r * CELL_SIZE + CELL_SIZE / 2,
+          });
+          curr = cameFrom.get(`${curr.c},${curr.r}`);
+        }
+        return path;
+      }
+
+      visited.add(curKey);
+
+      const dirs = [
+        { dc: 1, dr: 0 },
+        { dc: -1, dr: 0 },
+        { dc: 0, dr: 1 },
+        { dc: 0, dr: -1 },
+      ];
+
+      for (let d of dirs) {
+        const nc = current.c + d.dc;
+        const nr = current.r + d.dr;
+        if (!isWalkable(nc, nr)) continue;
+
+        const neighborKey = `${nc},${nr}`;
+        if (visited.has(neighborKey)) continue;
+
+        const penalty = penalties ? (penalties.get(neighborKey) || 0) : 0;
+        const tentativeG = gScore.get(curKey) + 1 + penalty;
+
+        if (!gScore.has(neighborKey) || tentativeG < gScore.get(neighborKey)) {
+          cameFrom.set(neighborKey, current);
+          gScore.set(neighborKey, tentativeG);
+          const f = tentativeG + Math.abs(nc - targetC) + Math.abs(nr - targetR);
+          fScore.set(neighborKey, f);
+
+          if (!openSet.some(node => node.c === nc && node.r === nr)) {
+            openSet.push({ c: nc, r: nr, f });
+          }
+        }
+      }
+    }
+    return [];
+  }
+
+  // Raycast de Linha de Visão (Replicação do Physics.Linecast - paredes bloqueiam visão)
+  function hasLineOfSight(x0, y0, x1, y1) {
+    const dist = Math.hypot(x1 - x0, y1 - y0);
+    const steps = Math.max(1, Math.ceil(dist / 6));
+    const dx = (x1 - x0) / steps;
+    const dy = (y1 - y0) / steps;
+
+    for (let s = 1; s < steps; s++) {
+      const px = x0 + dx * s;
+      const py = y0 + dy * s;
+      const c = Math.floor(px / CELL_SIZE);
+      const r = Math.floor(py / CELL_SIZE);
+      if (c < 0 || c >= cols || r < 0 || r >= rows) return false;
+      if (maze[r * cols + c] === 1) return false;
+    }
+    return true;
+  }
+
+  // Gravação contínua do rastro de calor
   function recordPlayerPosition() {
-    const col = Math.floor(player.x / GRID_SIZE);
-    const row = Math.floor(player.y / GRID_SIZE);
-    if (col >= 0 && col < cols && row >= 0 && row < rows) {
+    const col = Math.floor(player.x / CELL_SIZE);
+    const row = Math.floor(player.y / CELL_SIZE);
+    if (col >= 0 && col < cols && row >= 0 && row < rows && maze[row * cols + col] === 0) {
       const idx = row * cols + col;
       heatmap[idx] = Math.min(255, heatmap[idx] + 8);
-      // Difusão suave para as células vizinhas (efeito térmico esférico contínuo)
-      if (col > 0) heatmap[idx - 1] = Math.min(255, heatmap[idx - 1] + 2);
-      if (col < cols - 1) heatmap[idx + 1] = Math.min(255, heatmap[idx + 1] + 2);
-      if (row > 0) heatmap[idx - cols] = Math.min(255, heatmap[idx - cols] + 2);
-      if (row < rows - 1) heatmap[idx + cols] = Math.min(255, heatmap[idx + cols] + 2);
     }
   }
 
@@ -305,32 +463,36 @@ function initThariumHeatmapSimulation() {
     for (let i = 0; i < heatmap.length; i++) {
       if (heatmap[i] > 0) heatmap[i] = Math.max(0, heatmap[i] - 1);
     }
+    // Dissipação gradual das penalidades de rota
+    for (let [k, val] of penaltyMap.entries()) {
+      if (val > 1) penaltyMap.set(k, val - 1);
+      else penaltyMap.delete(k);
+    }
   }, 90);
 
-  // Extrai múltiplos centros de calor distintos para a IA transitar entre eles (focado nos 15 mais quentes)
+  // Extrai múltiplos centros de calor distintos (Top 15)
   function getTopHotSpots() {
     let spots = [];
     for (let i = 0; i < heatmap.length; i++) {
-      if (heatmap[i] > 18) {
+      if (heatmap[i] > 18 && maze[i] === 0) {
         const col = i % cols;
         const row = Math.floor(i / cols);
         spots.push({
-          x: col * GRID_SIZE + GRID_SIZE / 2,
-          y: row * GRID_SIZE + GRID_SIZE / 2,
+          c: col,
+          r: row,
+          x: col * CELL_SIZE + CELL_SIZE / 2,
+          y: row * CELL_SIZE + CELL_SIZE / 2,
           val: heatmap[i],
         });
       }
     }
     spots.sort((a, b) => b.val - a.val);
 
-    // Considera estritamente os 15 pontos mais quentes
     const top15 = spots.slice(0, 15);
-
-    // Filtra pontos espaçados em pelo menos 38px
     let distinct = [];
     for (let i = 0; i < top15.length; i++) {
       const s = top15[i];
-      if (distinct.every(d => Math.hypot(d.x - s.x, d.y - s.y) > 38)) {
+      if (distinct.every(d => Math.hypot(d.x - s.x, d.y - s.y) > 36)) {
         distinct.push(s);
         if (distinct.length >= 5) break;
       }
@@ -338,173 +500,164 @@ function initThariumHeatmapSimulation() {
     return distinct;
   }
 
+  function moveEntityAlongPath(entity, speed) {
+    if (!entity.path || entity.pathIndex >= entity.path.length) return false;
+    const target = entity.path[entity.pathIndex];
+    const dx = target.x - entity.x;
+    const dy = target.y - entity.y;
+    const dist = Math.hypot(dx, dy);
+
+    if (dist <= speed) {
+      entity.x = target.x;
+      entity.y = target.y;
+      entity.c = target.c;
+      entity.r = target.r;
+      entity.pathIndex++;
+    } else {
+      entity.x += (dx / dist) * speed;
+      entity.y += (dy / dist) * speed;
+      entity.c = Math.floor(entity.x / CELL_SIZE);
+      entity.r = Math.floor(entity.y / CELL_SIZE);
+
+      const targetAngle = Math.atan2(dy, dx);
+      let diff = targetAngle - entity.angle;
+      while (diff < -Math.PI) diff += 2 * Math.PI;
+      while (diff > Math.PI) diff -= 2 * Math.PI;
+      entity.angle += diff * 0.22;
+    }
+    return true;
+  }
+
+  let frameCount = 0;
+  let exitPulse = 0;
+
   function loop() {
+    frameCount++;
+    exitPulse += 0.05;
+
     ctx.fillStyle = "#040810";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // 1. Grade de Calor Térmico (Exatamente no máximo 15 pontos mais vermelhos/quentes)
-    cols = Math.floor(canvas.width / GRID_SIZE);
-    rows = Math.floor(canvas.height / GRID_SIZE);
-
-    let activeCells = [];
-    for (let i = 0; i < heatmap.length; i++) {
-      if (heatmap[i] > 0) {
-        activeCells.push({ idx: i, val: heatmap[i] });
+    // 1. Renderização das Paredes do Labirinto (CAD / Obsidian Architectural)
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (maze[r * cols + c] === 1) {
+          ctx.fillStyle = "#091424";
+          ctx.fillRect(c * CELL_SIZE, r * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+          ctx.strokeStyle = "#132840";
+          ctx.lineWidth = 1;
+          ctx.strokeRect(c * CELL_SIZE + 0.5, r * CELL_SIZE + 0.5, CELL_SIZE - 1, CELL_SIZE - 1);
+        }
       }
     }
 
-    // Ordena pelo maior valor de calor
+    // 2. Grade Térmica (Exatamente no máximo 15 pontos mais vermelhos/quentes)
+    let activeCells = [];
+    for (let i = 0; i < heatmap.length; i++) {
+      if (heatmap[i] > 0 && maze[i] === 0) {
+        activeCells.push({ idx: i, val: heatmap[i] });
+      }
+    }
     activeCells.sort((a, b) => b.val - a.val);
 
-    // Mapeia rigorosamente os top 15 pontos mais quentes
     const top15Map = new Map();
     const topLimit = Math.min(15, activeCells.length);
     for (let rank = 0; rank < topLimit; rank++) {
       top15Map.set(activeCells[rank].idx, rank);
     }
 
-    // Renderiza células ativas
     for (let i = 0; i < activeCells.length; i++) {
       const cell = activeCells[i];
       const c = cell.idx % cols;
       const r = Math.floor(cell.idx / cols);
 
       if (top15Map.has(cell.idx)) {
-        // TOP 15: PONTOS MAIS VERMELHOS (Gradiente vibrante de calor carmesim/vermelho)
         const rank = top15Map.get(cell.idx);
-        const heatNorm = 1 - rank / 15; // 1.0 (hottest) a 0.07 (15th)
+        const heatNorm = 1 - rank / 15;
         const red = 235 + Math.floor(heatNorm * 20);
         const green = Math.floor((1 - heatNorm) * 55);
         const blue = Math.floor((1 - heatNorm) * 40);
-        const alpha = 0.45 + heatNorm * 0.40; // 0.45 a 0.85
+        const alpha = 0.45 + heatNorm * 0.40;
 
         ctx.fillStyle = `rgba(${red}, ${green}, ${blue}, ${alpha})`;
-        ctx.fillRect(c * GRID_SIZE, r * GRID_SIZE, GRID_SIZE - 1, GRID_SIZE - 1);
+        ctx.fillRect(c * CELL_SIZE + 1, r * CELL_SIZE + 1, CELL_SIZE - 2, CELL_SIZE - 2);
       } else {
-        // DEMAIS PONTOS: Rastros frios (Azul sutil, nunca vermelho)
         const coldRatio = Math.min(1, cell.val / 100);
-        const alpha = coldRatio * 0.20;
+        const alpha = coldRatio * 0.22;
         ctx.fillStyle = `rgba(37, 99, 235, ${alpha})`;
-        ctx.fillRect(c * GRID_SIZE, r * GRID_SIZE, GRID_SIZE - 1, GRID_SIZE - 1);
+        ctx.fillRect(c * CELL_SIZE + 1, r * CELL_SIZE + 1, CELL_SIZE - 2, CELL_SIZE - 2);
       }
     }
 
-    // Decrementa cooldown de reativação de perseguição
-    if (ghost.chaseCooldown > 0) {
-      ghost.chaseCooldown--;
-    }
+    // 3. Renderização do Portal de Saída e Entrada
+    const exitX = exitCoord.c * CELL_SIZE + CELL_SIZE / 2;
+    const exitY = exitCoord.r * CELL_SIZE + CELL_SIZE / 2;
+    const pulseRadius = 8 + Math.sin(exitPulse) * 3;
 
-    // 2. Movimentação do Jogador com Colisão e Ricochete nas 4 Paredes (Bater nas Paredes)
-    const distToGhost = Math.hypot(player.x - ghost.x, player.y - ghost.y);
-    const isUnderThreat = ghost.state === "CHASE" || (distToGhost < 85 && ghost.chaseCooldown <= 0);
-
-    if (player.bounceCooldown > 0) {
-      player.bounceCooldown--;
-    }
-
-    if (isUnderThreat && player.bounceCooldown === 0) {
-      // Evasão ativa do fantasma
-      let escX = player.x - ghost.x;
-      let escY = player.y - ghost.y;
-      const escDist = Math.hypot(escX, escY) || 1;
-      escX /= escDist;
-      escY /= escDist;
-
-      // Adiciona componente angular lateral para a curva não ser linear
-      const tangentX = -escY * 0.45;
-      const tangentY = escX * 0.45;
-
-      let fleeX = escX + tangentX;
-      let fleeY = escY + tangentY;
-
-      // Desvia suavemente das bordas se estiver muito colado durante a fuga
-      const wMargin = 30;
-      if (player.x < wMargin) fleeX += 1.0;
-      if (player.x > canvas.width - wMargin) fleeX -= 1.0;
-      if (player.y < wMargin) fleeY += 1.0;
-      if (player.y > canvas.height - wMargin) fleeY -= 1.0;
-
-      const fLen = Math.hypot(fleeX, fleeY) || 1;
-      player.vx = player.vx * 0.86 + (fleeX / fLen) * player.speed * 0.14;
-      player.vy = player.vy * 0.86 + (fleeY / fLen) * player.speed * 0.14;
-    } else if (player.bounceCooldown === 0) {
-      // Movimento livre exploratório: leve flutuação angular contínua para explorar cantos e bater nas paredes
-      const curAngle = Math.atan2(player.vy, player.vx);
-      const newAngle = curAngle + (Math.random() - 0.5) * 0.05;
-      player.vx = Math.cos(newAngle) * player.speed;
-      player.vy = Math.sin(newAngle) * player.speed;
-    }
-
-    // Mantém velocidade constante
-    const curSpd = Math.hypot(player.vx, player.vy) || 1;
-    player.vx = (player.vx / curSpd) * player.speed;
-    player.vy = (player.vy / curSpd) * player.speed;
-
-    // Deslocamento físico
-    player.x += player.vx;
-    player.y += player.vy;
-
-    // COLISÃO FÍSICA E RICOCHETE NAS 4 PAREDES (Bater nas paredes)
-    const margin = 14;
-
-    // Parede Esquerda
-    if (player.x <= margin) {
-      player.x = margin;
-      player.vx = Math.abs(player.vx);
-      player.vy += (Math.random() - 0.5) * 0.9;
-      player.bounceCooldown = 15;
-    } 
-    // Parede Direita
-    else if (player.x >= canvas.width - margin) {
-      player.x = canvas.width - margin;
-      player.vx = -Math.abs(player.vx);
-      player.vy += (Math.random() - 0.5) * 0.9;
-      player.bounceCooldown = 15;
-    }
-
-    // Parede Superior (Teto)
-    if (player.y <= margin) {
-      player.y = margin;
-      player.vy = Math.abs(player.vy);
-      player.vx += (Math.random() - 0.5) * 0.9;
-      player.bounceCooldown = 15;
-    } 
-    // Parede Inferior (Chão)
-    else if (player.y >= canvas.height - margin) {
-      player.y = canvas.height - margin;
-      player.vy = -Math.abs(player.vy);
-      player.vx += (Math.random() - 0.5) * 0.9;
-      player.bounceCooldown = 15;
-    }
-
-    // Re-normaliza após o impacto
-    const postSpd = Math.hypot(player.vx, player.vy) || 1;
-    player.vx = (player.vx / postSpd) * player.speed;
-    player.vy = (player.vy / postSpd) * player.speed;
-
-    recordPlayerPosition();
-
-    // Desenha Jogador (Ponto Esmeralda com halo suave)
+    // Portal de Saída (Esmeralda pulsante)
     ctx.beginPath();
-    ctx.arc(player.x, player.y, 6, 0, Math.PI * 2);
+    ctx.arc(exitX, exitY, pulseRadius, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(16, 185, 129, 0.45)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(exitX, exitY, 6, 0, Math.PI * 2);
     ctx.fillStyle = "#10B981";
     ctx.fill();
 
-    ctx.beginPath();
-    ctx.arc(player.x, player.y, 9, 0, Math.PI * 2);
-    ctx.strokeStyle = "rgba(16, 185, 129, 0.4)";
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
+    ctx.font = "8px monospace";
+    ctx.fillStyle = "#10B981";
+    ctx.textAlign = "center";
+    ctx.fillText("SAÍDA", exitX, exitY - 11);
 
-    // 3. Verificação de Visão da IA (Cone de 120º e Raio de Visão de 90px)
+    // Entrada (Ciano suave)
+    const startX = startCoord.c * CELL_SIZE + CELL_SIZE / 2;
+    const startY = startCoord.r * CELL_SIZE + CELL_SIZE / 2;
+    ctx.fillStyle = "rgba(6, 182, 212, 0.5)";
+    ctx.fillText("ENTRADA", startX, startY - 9);
+
+    // 4. Movimentação do Jogador
+    const moved = moveEntityAlongPath(player, player.speed);
+    recordPlayerPosition();
+
+    // Checagem de Chegada na Saída
+    if (Math.hypot(player.x - exitX, player.y - exitY) < 14) {
+      player.escapes++;
+      penaltyMap.clear(); // Limpa penalidades após vitória
+      player.c = startCoord.c;
+      player.r = startCoord.r;
+      player.x = startX;
+      player.y = startY;
+      player.path = findPathAStar(player.c, player.r, exitCoord.c, exitCoord.r, penaltyMap);
+      player.pathIndex = 0;
+
+      ghost.state = "PATROL";
+      ghost.lastSeenPoint = null;
+      ghost.chaseCooldown = 120;
+      ghost.path = [];
+      ghost.pathIndex = 0;
+
+      if (statusBadge) {
+        statusBadge.textContent = `SUCESSO! ESCAPOU PELO PORTAL (TOTAL: ${player.escapes})`;
+        statusBadge.style.color = "#10B981";
+      }
+    } else if (!moved || player.pathIndex >= player.path.length) {
+      // Se ficou sem caminho, recalcula rumo à saída
+      player.path = findPathAStar(player.c, player.r, exitCoord.c, exitCoord.r, penaltyMap);
+      player.pathIndex = 0;
+    }
+
+    // 5. Linha de Visão e IA do Fantasma
+    if (ghost.chaseCooldown > 0) ghost.chaseCooldown--;
+
     const fov = (120 * Math.PI) / 180;
-    const viewRadius = 90;
+    const viewRadius = 95;
     const dx = player.x - ghost.x;
     const dy = player.y - ghost.y;
     const distToPlayer = Math.hypot(dx, dy);
 
     let playerInView = false;
-    // Só engaja perseguição se o cooldown de patrulha tiver expirado
     if (distToPlayer <= viewRadius && ghost.chaseCooldown <= 0) {
       const angleToPlayer = Math.atan2(dy, dx);
       let diffAngle = angleToPlayer - ghost.angle;
@@ -512,116 +665,122 @@ function initThariumHeatmapSimulation() {
       while (diffAngle > Math.PI) diffAngle -= 2 * Math.PI;
 
       if (Math.abs(diffAngle) <= fov / 2) {
-        playerInView = true;
+        // Valida se há linha direta desimpedida por paredes
+        if (hasLineOfSight(ghost.x, ghost.y, player.x, player.y)) {
+          playerInView = true;
+        }
       }
     }
 
-    // Se o fantasma interceptar o jogador diretamente (colisão física < 12px), encerra perseguição
-    if (distToPlayer < 12) {
-      ghost.lastSeenPoint = null;
+    // Flagrante / Captura do Jogador
+    if (distToPlayer < 14) {
+      // Pego pela IA: penaliza a área onde foi pego para forçar rota alternativa
+      const caughtC = player.c;
+      const caughtR = player.r;
+      for (let dc = -2; dc <= 2; dc++) {
+        for (let dr = -2; dr <= 2; dr++) {
+          const pc = caughtC + dc;
+          const pr = caughtR + dr;
+          if (isWalkable(pc, pr)) {
+            penaltyMap.set(`${pc},${pr}`, 140);
+          }
+        }
+      }
+
+      // Reinicia jogador na entrada
+      player.c = startCoord.c;
+      player.r = startCoord.r;
+      player.x = startX;
+      player.y = startY;
+      player.angle = 0;
+      // Recalcula rota com penalidades: A* escolhe rota alternativa!
+      player.path = findPathAStar(player.c, player.r, exitCoord.c, exitCoord.r, penaltyMap);
+      player.pathIndex = 0;
+
       ghost.state = "PATROL";
+      ghost.lastSeenPoint = null;
       ghost.chaseCooldown = 120;
       ghost.chaseTimer = 180;
-      ghost.currentPatrolSpot = null;
+      ghost.path = [];
+      ghost.pathIndex = 0;
+
+      if (statusBadge) {
+        statusBadge.textContent = "CAPTURA! RE-ROTEANDO POR CAMINHO ALTERNATIVO...";
+        statusBadge.style.color = "#EF4444";
+      }
     }
 
-    // 4. Máquina de Estados e Velocidade (IA calibrada para ser mais lenta que o jogador)
-    let currentSpeed = 1.20;
+    // Máquina de Estados da IA
+    let ghostSpeed = 1.20;
 
     if (playerInView) {
       ghost.chaseTimer--;
       if (ghost.chaseTimer <= 0) {
-        // Fadiga de Perseguição: Desiste após ~3s e foca no último ponto visto
         ghost.state = "PURSUING_LAST_SEEN";
-        ghost.lastSeenPoint = { x: player.x, y: player.y };
-        ghost.chaseCooldown = 120; // 2s de patrulha obrigatória
+        ghost.lastSeenPoint = { x: player.x, y: player.y, c: player.c, r: player.r };
+        ghost.chaseCooldown = 120;
         ghost.chaseTimer = 180;
       } else {
-        // VISÃO CONFIRMADA: Persegue o jogador diretamente
         ghost.state = "CHASE";
-        currentSpeed = 1.60; // Mais lento que o jogador (1.95)
-        ghost.targetX = player.x;
-        ghost.targetY = player.y;
-        ghost.lastSeenPoint = { x: player.x, y: player.y };
+        ghostSpeed = 1.60; // Mais lento que o jogador (1.95)
+        ghost.lastSeenPoint = { x: player.x, y: player.y, c: player.c, r: player.r };
+
+        // Recalcula percurso em direção ao jogador periodicamente
+        if (frameCount % 12 === 0 || ghost.path.length === 0) {
+          ghost.path = findPathAStar(ghost.c, ghost.r, player.c, player.r, null);
+          ghost.pathIndex = 0;
+        }
       }
     } else if (ghost.lastSeenPoint !== null) {
-      // PERDEU DE VISTA: Desloca até o último ponto onde conseguiu ver o jogador
       ghost.state = "PURSUING_LAST_SEEN";
-      currentSpeed = 1.40;
-      ghost.targetX = ghost.lastSeenPoint.x;
-      ghost.targetY = ghost.lastSeenPoint.y;
+      ghostSpeed = 1.40;
+
+      if (ghost.path.length === 0 || ghost.pathIndex >= ghost.path.length) {
+        ghost.path = findPathAStar(ghost.c, ghost.r, ghost.lastSeenPoint.c, ghost.lastSeenPoint.r, null);
+        ghost.pathIndex = 0;
+      }
 
       const distToLast = Math.hypot(ghost.lastSeenPoint.x - ghost.x, ghost.lastSeenPoint.y - ghost.y);
-      if (distToLast < 14) {
-        // Alcançou o último ponto visto: encerra perseguição e volta a transitar nos pontos quentes
+      if (distToLast < 12 || ghost.pathIndex >= ghost.path.length) {
         ghost.lastSeenPoint = null;
         ghost.state = "PATROL";
-        ghost.currentPatrolSpot = null;
-        ghost.chaseCooldown = 90; // 1.5s mínimo de patrulha térmica antes de nova visão
+        ghost.chaseCooldown = 90;
         ghost.chaseTimer = 180;
+        ghost.path = [];
+        ghost.pathIndex = 0;
       }
     } else {
-      // PATRULHA NORMAL: Transita ciclicamente entre os pontos mais quentes
       ghost.state = "PATROL";
-      currentSpeed = 1.20;
+      ghostSpeed = 1.20;
       ghost.chaseTimer = 180;
 
-      const hotSpots = getTopHotSpots();
-      if (hotSpots.length > 0) {
-        if (!ghost.currentPatrolSpot || Math.hypot(ghost.currentPatrolSpot.x - ghost.x, ghost.currentPatrolSpot.y - ghost.y) < 22) {
-          ghost.patrolIndex = (ghost.patrolIndex + 1) % hotSpots.length;
-          ghost.currentPatrolSpot = hotSpots[ghost.patrolIndex];
-        }
-        ghost.targetX = ghost.currentPatrolSpot.x;
-        ghost.targetY = ghost.currentPatrolSpot.y;
-      } else {
-        if (Math.hypot(ghost.targetX - ghost.x, ghost.targetY - ghost.y) < 20) {
-          ghost.targetX = Math.random() * (canvas.width - 40) + 20;
-          ghost.targetY = Math.random() * (canvas.height - 40) + 20;
+      // Patrulha entre os pontos mais quentes deixados pelo jogador
+      if (ghost.path.length === 0 || ghost.pathIndex >= ghost.path.length) {
+        const hotSpots = getTopHotSpots();
+        if (hotSpots.length > 0) {
+          const targetSpot = hotSpots[Math.floor(Math.random() * hotSpots.length)];
+          ghost.path = findPathAStar(ghost.c, ghost.r, targetSpot.c, targetSpot.r, null);
+          ghost.pathIndex = 0;
         }
       }
     }
 
-    // 5. Atualização de Posição e Orientação do Fantasma
-    const tdx = ghost.targetX - ghost.x;
-    const tdy = ghost.targetY - ghost.y;
-    const tdist = Math.hypot(tdx, tdy);
-    if (tdist > 3) {
-      ghost.x += (tdx / tdist) * currentSpeed;
-      ghost.y += (tdy / tdist) * currentSpeed;
-
-      const targetAngle = Math.atan2(tdy, tdx);
-      let diff = targetAngle - ghost.angle;
-      while (diff < -Math.PI) diff += 2 * Math.PI;
-      while (diff > Math.PI) diff -= 2 * Math.PI;
-      ghost.angle += diff * 0.14;
-    }
+    moveEntityAlongPath(ghost, ghostSpeed);
 
     // 6. Marcador do Último Ponto Visto
     if (ghost.lastSeenPoint && ghost.state === "PURSUING_LAST_SEEN") {
       ctx.beginPath();
-      ctx.setLineDash([3, 3]);
-      ctx.moveTo(ghost.x, ghost.y);
-      ctx.lineTo(ghost.lastSeenPoint.x, ghost.lastSeenPoint.y);
-      ctx.strokeStyle = "rgba(249, 115, 22, 0.45)";
-      ctx.lineWidth = 1;
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      ctx.beginPath();
-      ctx.arc(ghost.lastSeenPoint.x, ghost.lastSeenPoint.y, 5, 0, Math.PI * 2);
-      ctx.strokeStyle = "#F97316";
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
+      ctx.arc(ghost.lastSeenPoint.x, ghost.lastSeenPoint.y, 4, 0, Math.PI * 2);
+      ctx.fillStyle = "#F97316";
+      ctx.fill();
 
       ctx.font = "8px monospace";
       ctx.fillStyle = "#F97316";
       ctx.textAlign = "center";
       ctx.fillText("ÚLTIMO PONTO", ghost.lastSeenPoint.x, ghost.lastSeenPoint.y - 7);
-      ctx.textAlign = "start";
     }
 
-    // 7. Renderização do Cone de Visão de 120º
+    // 7. Cone de Visão de 120º
     ctx.beginPath();
     ctx.moveTo(ghost.x, ghost.y);
     ctx.arc(ghost.x, ghost.y, viewRadius, ghost.angle - fov / 2, ghost.angle + fov / 2);
@@ -641,7 +800,19 @@ function initThariumHeatmapSimulation() {
     ctx.fill();
     ctx.stroke();
 
-    // 8. Renderização do Fantasma
+    // 8. Renderização das Entidades
+    // Jogador (Ponto Esmeralda com halo suave)
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, 6, 0, Math.PI * 2);
+    ctx.fillStyle = "#10B981";
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, 9, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(16, 185, 129, 0.4)";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Fantasma (Ponto Vermelho Carmesim)
     ctx.beginPath();
     ctx.arc(ghost.x, ghost.y, 7, 0, Math.PI * 2);
     ctx.fillStyle = ghost.state === "CHASE" ? "#EF4444" : (ghost.state === "PURSUING_LAST_SEEN" ? "#F97316" : "#EF4444");
@@ -650,13 +821,13 @@ function initThariumHeatmapSimulation() {
     // 9. Atualização de Telemetria no Cabeçalho
     if (statusBadge) {
       if (ghost.state === "CHASE") {
-        statusBadge.textContent = "ALERTA: CONTATO VISUAL (PERSEGUINDO)";
+        statusBadge.textContent = "ALERTA: FANTASMA EM CONTATO VISUAL!";
         statusBadge.style.color = "#EF4444";
       } else if (ghost.state === "PURSUING_LAST_SEEN") {
-        statusBadge.textContent = "VISÃO QUEBRADA: INDO AO ÚLTIMO PONTO VISTO";
+        statusBadge.textContent = "VISÃO QUEBRADA NA CURVA: INDO AO ÚLTIMO PONTO";
         statusBadge.style.color = "#F97316";
-      } else {
-        statusBadge.textContent = "IA NAVMESH: TRANSITANDO ENTRE PONTOS QUENTES";
+      } else if (!statusBadge.textContent.includes("CAPTURA") && !statusBadge.textContent.includes("SUCESSO")) {
+        statusBadge.textContent = "IA NAVMESH: TRANSITANDO ENTRE PONTOS QUENTES DO CASARÃO";
         statusBadge.style.color = "var(--gold)";
       }
     }
