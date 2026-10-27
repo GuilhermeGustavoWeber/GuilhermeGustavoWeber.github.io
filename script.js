@@ -247,7 +247,7 @@ function initThariumHeatmapSimulation() {
 
   function resizeCanvas() {
     canvas.width = canvas.parentElement.clientWidth - 24;
-    canvas.height = 180;
+    canvas.height = 260;
   }
   resizeCanvas();
   window.addEventListener("resize", resizeCanvas);
@@ -360,7 +360,7 @@ function initThariumHeatmapSimulation() {
 
     // 3. Verificação de Visão da IA (Cone de 120º e Raio de Visão)
     const fov = (120 * Math.PI) / 180;
-    const viewRadius = 85;
+    const viewRadius = 90;
     const dx = player.x - ghost.x;
     const dy = player.y - ghost.y;
     const distToPlayer = Math.hypot(dx, dy);
