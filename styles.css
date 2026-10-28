@@ -826,6 +826,20 @@ html[data-theme="light"] .card-stats-box {
   transform: translateX(3px);
 }
 
+.card-link-private {
+  color: var(--muted);
+  cursor: default;
+  opacity: 0.85;
+}
+
+.card-link-private:hover {
+  color: var(--peach);
+}
+
+.card-link-private:hover svg {
+  transform: none;
+}
+
 /* Simulador Canvas do Tharium Heatmap */
 .heatmap-canvas-container {
   background: #0B1320;

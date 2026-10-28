@@ -568,8 +568,9 @@ void GenerateNewHeatmapPatrolRoute()<br>
   },
   sidi: {
     title: "SIDI v2.0 — Copiloto Cognitivo Pessoal com Soberania Técnica",
-    tags: ["Python 100% Stdlib", "SQLite FTS5", "Cadeia Merkle", "Grafo Hebbiano"],
-    link: "https://github.com/GuilhermeGustavoWeber/sidi",
+    tags: ["Python 100% Stdlib", "SQLite FTS5", "Cadeia Merkle", "Grafo Hebbiano", "Repositório Privado"],
+    link: null,
+    is_private: true,
     body: `
       <h4>O Desafio de Engenharia</h4>
       <p>Criar um copiloto de engenharia soberano capaz de operar continuamente com memória durável, governança ética rigorosa e persistência estruturada sem depender de bibliotecas externas frágeis ou serviços de terceiros que possam quebrar entre máquinas.</p>
@@ -657,7 +658,12 @@ function initProjectModals() {
     modalTitle.textContent = data.title;
     modalTags.innerHTML = data.tags.map(t => `<span class="tag-badge">${t}</span>`).join("");
     modalBody.innerHTML = data.body;
-    modalLink.href = data.link;
+    if (data.is_private || !data.link) {
+      modalLink.style.display = "none";
+    } else {
+      modalLink.style.display = "inline-flex";
+      modalLink.href = data.link;
+    }
 
     modalBackdrop.classList.add("open");
     modalBackdrop.setAttribute("aria-hidden", "false");
