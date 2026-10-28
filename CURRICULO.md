@@ -8,7 +8,7 @@ Indaiatuba - SP | (19) 99934-7211 | guilherme7weber@gmail.com
 ## RESUMO PROFISSIONAL & PERFIL TÉCNICO
 Graduando em Ciência da Computação (7º/8º semestre, UniMAX) com sólida bagagem prévia em Engenharia de Software (PUC-Campinas e UNIJUÍ). Vencedor do **1º Lugar no TechDay 2025** com a criação de um motor de IA espacial tridimensional preditiva em C# / Unity 3D. 
 
-Especialista no desenvolvimento de software resiliente, com proficiência em arquitetura de sistemas cognitivos autônomos (Python / SQLite FTS5 / Merkle Trees), engenharia web de ponta a ponta (TypeScript / FastAPI / REST) e computação de baixo nível (Linguagem C / alocação de memória / ponteiros). Praticante de soberania técnica: código sem dependências infladas, tipagem estrita (*mypy strict* e TypeScript), suítes de testes automatizados e integridade criptográfica.
+Especialista no desenvolvimento de software resiliente, com proficiência em arquitetura de sistemas cognitivos autônomos (Python / SQLite FTS5 / Merkle Trees), engenharia web de ponta a ponta (TypeScript / FastAPI / REST) e computação de baixo nível (Linguagem C / alocação de memória / ponteiros). Praticante de código limpo e arquitetura enxuta: código sem dependências infladas, tipagem estrita (*mypy strict* e TypeScript), suítes de testes automatizados e integridade criptográfica.
 
 ---
 
@@ -24,7 +24,7 @@ Especialista no desenvolvimento de software resiliente, com proficiência em arq
 
 ### 2. SIDI v2.0 — Copiloto Cognitivo Pessoal & Grafo Cortical Hebbiano
 **Stack:** Python 3.12+ (100% Standard Library), SQLite FTS5, Merkle DAG, Mypy Strict
-- Desenvolveu uma arquitetura cognitiva autônoma soberana baseada em nós de memória persistente, sem dependência de runtimes ou pacotes de terceiros.
+- Desenvolveu uma arquitetura cognitiva autônoma baseada em nós de memória persistente, sem dependência de runtimes ou pacotes de terceiros.
 - Implementou trilha de auditoria e conformidade com **Cadeia Merkle SHA-256**, garantindo rastreabilidade criptográfica à prova de adulteração em todas as transações da memória e do motor de execução.
 - Motor de recuperação híbrida unificada: combinou índice invertido full-text BM25 com **Reciprocal Rank Fusion (RRF)** sobre o motor FTS5 do SQLite.
 - Grafo neural simulado: modelo hebbiano com regras de plasticidade sináptica ("neurons that fire together wire together"), decaimento temporal de pesos e poda automática de arestas ociosas.

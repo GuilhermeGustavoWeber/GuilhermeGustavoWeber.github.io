@@ -567,13 +567,13 @@ void GenerateNewHeatmapPatrolRoute()<br>
     `
   },
   sidi: {
-    title: "SIDI v2.0 — Copiloto Cognitivo Pessoal com Soberania Técnica",
+    title: "SIDI v2.0 — Copiloto Cognitivo Pessoal",
     tags: ["Python 100% Stdlib", "SQLite FTS5", "Cadeia Merkle", "Grafo Hebbiano", "Repositório Privado"],
     link: null,
     is_private: true,
     body: `
       <h4>O Desafio de Engenharia</h4>
-      <p>Criar um copiloto de engenharia soberano capaz de operar continuamente com memória durável, governança ética rigorosa e persistência estruturada sem depender de bibliotecas externas frágeis ou serviços de terceiros que possam quebrar entre máquinas.</p>
+      <p>Criar um copiloto de engenharia autônomo capaz de operar continuamente com memória durável, governança ética rigorosa e persistência estruturada sem depender de bibliotecas externas frágeis ou serviços de terceiros que possam quebrar entre máquinas.</p>
 
       <h4>Componentes Centrais</h4>
       <p>1. <strong>Cadeia Merkle SHA-256 (security.py):</strong> Log imutável append-only onde cada evento possui hash encadeado <code>row_hash = sha256(prev_hash | payload)</code>, auditável via <code>verify_chain()</code>.</p>

@@ -4,7 +4,7 @@ Portfolio profissional de engenharia de software e arquitetura de sistemas, cons
 
 ## 🚀 Destaques Técnicos
 
-- **Zero Dependências / Soberania Client-Side**: 100% construído em HTML5 Semântico, CSS3 Moderno (Neumorfismo Tátil em 3 camadas de sombras) e Vanilla JavaScript (ES6).
+- **Zero Dependências / Client-Side Puro**: 100% construído em HTML5 Semântico, CSS3 Moderno (Neumorfismo Tátil em 3 camadas de sombras) e Vanilla JavaScript (ES6).
 - **Console Cognitivo Interativo**: Terminal emulado com suporte a comandos em tempo real (`help`, `tharium`, `sidi`, `novastore`, `gould`, `status`, `skills`, `clear`).
 - **Simulador Térmico do Tharium House (1º Lugar TechDay)**: Renderizador Canvas 2D reproduzindo em tempo real o algoritmo de IA de calor espacial tridimensional (`AINavMesh.cs` e `HeatmapViewer.cs`).
 - **Alternador de Tema Dark / Light**: Transição suave sem flash de tela, persistido em `localStorage`.
@@ -14,7 +14,7 @@ Portfolio profissional de engenharia de software e arquitetura de sistemas, cons
 
 ## 🛠️ Execução Local
 
-Como o projeto é 100% soberano e agnóstico, você pode abri-lo diretamente no navegador ou iniciar um servidor HTTP local:
+Como o projeto é 100% estático e agnóstico, você pode abri-lo diretamente no navegador ou iniciar um servidor HTTP local:
 
 ```bash
 # Via Python
