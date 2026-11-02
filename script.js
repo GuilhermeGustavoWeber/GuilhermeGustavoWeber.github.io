@@ -93,7 +93,7 @@ function initInteractiveTerminal() {
       `<span style="color: var(--green-ink); font-weight: 800;">[SIDI :: OPERATOR STATUS]</span>`,
       `Operador:        Guilherme Gustavo Weber`,
       `Localização:     Indaiatuba - SP (Brasil)`,
-      `Graduação:       Ciência da Computação (7º/8º Semestre • Previsão 2027)`,
+      `Graduação:       Ciência da Computação (Atual 8º Semestre • Previsão 2027)`,
       `Instituição:     Centro Universitário Max Planck (UniMAX) • PUCC • UNIJUÍ`,
       `Conquista:       1º Lugar no TechDay 2025 com o projeto Tharium House`,
       `LinkedIn:        https://linkedin.com/in/guilherme-gustavo-weber/`,

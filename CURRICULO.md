@@ -6,7 +6,7 @@ Indaiatuba - SP | (19) 99934-7211 | guilherme7weber@gmail.com
 ---
 
 ## RESUMO PROFISSIONAL & PERFIL TÉCNICO
-Graduando em Ciência da Computação (7º/8º semestre, UniMAX) com sólida bagagem prévia em Engenharia de Software (PUC-Campinas e UNIJUÍ). Vencedor do **1º Lugar no TechDay 2025** com a criação de um motor de IA espacial tridimensional preditiva em C# / Unity 3D. 
+Graduando em Ciência da Computação (8º semestre, UniMAX) com sólida bagagem prévia em Engenharia de Software (PUC-Campinas e UNIJUÍ). Vencedor do **1º Lugar no TechDay 2025** com a criação de um motor de IA espacial tridimensional preditiva em C# / Unity 3D. 
 
 Especialista no desenvolvimento de software resiliente, com proficiência em arquitetura de sistemas cognitivos autônomos (Python / SQLite FTS5 / Merkle Trees), engenharia web de ponta a ponta (TypeScript / FastAPI / REST) e computação de baixo nível (Linguagem C / alocação de memória / ponteiros). Praticante de código limpo e arquitetura enxuta: código sem dependências infladas, tipagem estrita (*mypy strict* e TypeScript), suítes de testes automatizados e integridade criptográfica.
 
@@ -65,7 +65,7 @@ Especialista no desenvolvimento de software resiliente, com proficiência em arq
 
 * **Bacharelado em Ciência da Computação**  
   *Centro Universitário Max Planck (UniMAX)* — Indaiatuba - SP  
-  *Período:* 7º / 8º Semestre • Previsão de Conclusão: 2027  
+  *Período:* Atual 8º Semestre • Previsão de Conclusão: 2027  
   *Destaque Acadêmico:* 1º Lugar Geral no TechDay 2025 com o projeto Tharium House.
 
 * **Engenharia de Software**  
