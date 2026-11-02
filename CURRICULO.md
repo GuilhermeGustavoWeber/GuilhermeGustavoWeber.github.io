@@ -100,6 +100,6 @@ Especialista no desenvolvimento de software resiliente, com proficiência em arq
 
 ## EXPERIÊNCIA PROFISSIONAL COMPLEMENTAR
 
-* **Auxiliar de Operações e Salão (BUSS)** — Outback Steakhouse  
+* **Auxiliar de Limpeza Salão (BUSS)** — Outback Steakhouse  
   *Período:* Abril de 2026 – Julho de 2026 (Indaiatuba - SP)  
   *Competências desenvolvidas:* Atuação sob ritmo acelerado e alta cadência de atendimento; gestão rigorosa de insumos e bar; disciplina operacional estrita, resiliência física/emocional e coordenação de entregas em equipe multidisciplinar.
