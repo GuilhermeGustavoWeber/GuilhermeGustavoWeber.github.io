@@ -1,6 +1,6 @@
 # GUILHERME GUSTAVO WEBER
 **Engenheiro de Software • Inteligência Artificial & Arquitetura de Sistemas**  
-Indaiatuba - SP | (19) 99934-7211 | guilherme7weber@gmail.com  
+Indaiatuba - SP | (19) 99934-7211 | **E-mail:** [guilherme7weber@gmail.com](mailto:guilherme7weber@gmail.com)  
 **LinkedIn:** [linkedin.com/in/guilherme-gustavo-weber](https://linkedin.com/in/guilherme-gustavo-weber/) | **GitHub:** [github.com/GuilhermeGustavoWeber](https://github.com/GuilhermeGustavoWeber) | **Portfólio:** [guilhermegustavoweber.github.io](https://guilhermegustavoweber.github.io)
 
 ---
